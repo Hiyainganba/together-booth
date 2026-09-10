@@ -24,15 +24,14 @@ export class PeerJSManager {
   private activeCalls: Map<string, MediaConnection> = new Map();
   private activeConnections: Map<string, DataConnection> = new Map();
   private peerIdToUid: Map<string, string> = new Map();
-  private uidToPeerId: Map<string, string> = new Map();
   private peerIdToName: Map<string, string> = new Map();
-  private localPeerId: string;
   private cleanRoomId: string;
   private localUid: string;
   private displayName: string;
-  private isHost: boolean;
   private isDestroyed = false;
-  private retryTimer: NodeJS.Timeout | null = null;
+  private currentSlotIndex = 1;
+  private maxSlots = 6;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
 
   private onRemoteStream?: (uid: string, stream: MediaStream, displayName?: string) => void;
   private onRemoteStreamRemoved?: (uid: string) => void;
@@ -44,24 +43,16 @@ export class PeerJSManager {
     roomId: string,
     localUid: string,
     displayName: string,
-    isHost: boolean,
+    _isHost?: boolean,
     onRemoteStream?: (uid: string, stream: MediaStream, displayName?: string) => void,
     onRemoteStreamRemoved?: (uid: string) => void,
     onMessage?: (senderId: string, data: PeerMessagePayload) => void,
     onRoomSync?: (room: Room) => void,
     onPeerHandshake?: (uid: string, displayName: string, peerId: string) => void
   ) {
-    this.cleanRoomId = roomId.trim().toUpperCase().replace(/[^A-Z0-9]/g, "") || "DEFAULT";
+    this.cleanRoomId = roomId.trim().toUpperCase().replace(/[^A-Z0-9]/g, "") || "ROOM";
     this.localUid = localUid;
-    this.displayName = displayName || "User";
-    this.isHost = isHost;
-
-    const safeUid = localUid.replace(/[^a-zA-Z0-9]/g, "").slice(-4) || "0000";
-    const randSuffix = Math.floor(100 + Math.random() * 900);
-
-    this.localPeerId = isHost
-      ? `tb_${this.cleanRoomId}_host`
-      : `tb_${this.cleanRoomId}_g_${safeUid}_${randSuffix}`;
+    this.displayName = displayName || "Photobooth User";
 
     this.onRemoteStream = onRemoteStream;
     this.onRemoteStreamRemoved = onRemoteStreamRemoved;
@@ -69,23 +60,48 @@ export class PeerJSManager {
     this.onRoomSync = onRoomSync;
     this.onPeerHandshake = onPeerHandshake;
 
-    this.initPeer();
+    this.initSlot(1);
   }
 
-  private initPeer() {
+  private getSlotId(slot: number): string {
+    return `tb_${this.cleanRoomId}_p${slot}`;
+  }
+
+  private get localPeerId(): string {
+    return this.getSlotId(this.currentSlotIndex);
+  }
+
+  private get targetSlotIds(): string[] {
+    const list: string[] = [];
+    for (let i = 1; i <= this.maxSlots; i++) {
+      if (i !== this.currentSlotIndex) {
+        list.push(this.getSlotId(i));
+      }
+    }
+    return list;
+  }
+
+  private initSlot(slot: number) {
     if (typeof window === "undefined" || this.isDestroyed) return;
 
+    this.currentSlotIndex = slot;
+    const slotId = this.getSlotId(slot);
+
     try {
-      this.peer = new Peer(this.localPeerId, {
+      if (this.peer) {
+        try {
+          this.peer.destroy();
+        } catch {}
+        this.peer = null;
+      }
+
+      this.peer = new Peer(slotId, {
         config: RTC_CONFIG,
         debug: 1,
       });
 
       this.peer.on("open", () => {
-        if (!this.isHost) {
-          this.connectToHost();
-          this.startRetryLoop();
-        }
+        this.startMeshHeartbeat();
       });
 
       this.peer.on("call", (call) => {
@@ -129,43 +145,52 @@ export class PeerJSManager {
       this.peer.on("error", (err: unknown) => {
         const errType = (err as { type?: string })?.type;
         if (errType === "unavailable-id") {
-          this.isHost = false;
-          const safeUid = this.localUid.replace(/[^a-zA-Z0-9]/g, "").slice(-4) || "0000";
-          this.localPeerId = `tb_${this.cleanRoomId}_g_${safeUid}_${Math.floor(100 + Math.random() * 900)}`;
-          this.initPeer();
+          if (slot < this.maxSlots) {
+            this.initSlot(slot + 1);
+          } else {
+            const randSuffix = Math.floor(1000 + Math.random() * 9000);
+            this.currentSlotIndex = 99;
+            const fallbackId = `tb_${this.cleanRoomId}_alt_${randSuffix}`;
+            this.peer = new Peer(fallbackId, { config: RTC_CONFIG, debug: 1 });
+            this.peer.on("open", () => this.startMeshHeartbeat());
+            this.peer.on("call", (call) => {
+              this.activeCalls.set(call.peer, call);
+              if (this.localStream) call.answer(this.localStream);
+              else call.answer();
+              call.on("stream", (stream) => {
+                this.onRemoteStream?.(call.peer, stream, this.peerIdToName.get(call.peer) || "Partner 🧸");
+              });
+            });
+            this.peer.on("connection", (conn) => this.setupDataConnection(conn));
+          }
         }
       });
     } catch {}
   }
 
-  private startRetryLoop() {
-    if (this.retryTimer) clearInterval(this.retryTimer);
-    let attempts = 0;
-    this.retryTimer = setInterval(() => {
-      if (this.isDestroyed || this.activeConnections.size > 0 || attempts > 25) {
-        if (this.retryTimer) clearInterval(this.retryTimer);
-        this.retryTimer = null;
-        return;
-      }
-      attempts++;
-      this.connectToHost();
-    }, 2000);
-  }
+  private startMeshHeartbeat() {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
 
-  private connectToHost() {
-    const hostPeerId = `tb_${this.cleanRoomId}_host`;
-    if (!this.peer || this.peer.destroyed || hostPeerId === this.localPeerId) return;
+    const tryConnectAll = () => {
+      if (this.isDestroyed || !this.peer || this.peer.destroyed) return;
 
-    if (!this.activeConnections.has(hostPeerId)) {
-      const conn = this.peer.connect(hostPeerId, { reliable: true });
-      if (conn) {
-        this.setupDataConnection(conn);
-      }
-    }
+      const targets = this.targetSlotIds;
+      targets.forEach((targetId) => {
+        if (!this.activeConnections.has(targetId)) {
+          const conn = this.peer!.connect(targetId, { reliable: true });
+          if (conn) {
+            this.setupDataConnection(conn);
+          }
+        }
 
-    if (this.localStream) {
-      this.callPeer(hostPeerId);
-    }
+        if (this.localStream && !this.activeCalls.has(targetId)) {
+          this.callPeer(targetId);
+        }
+      });
+    };
+
+    tryConnectAll();
+    this.heartbeatTimer = setInterval(tryConnectAll, 2000);
   }
 
   callPeer(targetPeerId: string) {
@@ -223,9 +248,7 @@ export class PeerJSManager {
         if (data.type === "peer_handshake" && data.senderId) {
           const senderDisplayName = data.displayName || "Partner 🧸";
           this.peerIdToUid.set(remoteId, data.senderId);
-          this.uidToPeerId.set(data.senderId, remoteId);
           this.peerIdToName.set(remoteId, senderDisplayName);
-
           this.onPeerHandshake?.(data.senderId, senderDisplayName, remoteId);
 
           conn.send({
@@ -238,18 +261,9 @@ export class PeerJSManager {
           if (this.localStream) {
             this.callPeer(remoteId);
           }
-
-          if (this.isHost) {
-            const currentConnectedPeers = Array.from(this.activeConnections.keys());
-            conn.send({
-              type: "peer_list_sync",
-              peers: currentConnectedPeers,
-            });
-          }
         } else if (data.type === "peer_handshake_ack" && data.senderId) {
           const senderDisplayName = data.displayName || "Partner 🧸";
           this.peerIdToUid.set(remoteId, data.senderId);
-          this.uidToPeerId.set(data.senderId, remoteId);
           this.peerIdToName.set(remoteId, senderDisplayName);
           this.onPeerHandshake?.(data.senderId, senderDisplayName, remoteId);
 
@@ -262,12 +276,6 @@ export class PeerJSManager {
           }
         } else if (data.type === "room_state_sync" && data.room) {
           this.onRoomSync?.(data.room);
-        } else if (data.type === "peer_list_sync" && Array.isArray(data.peers)) {
-          data.peers.forEach((otherPeerId) => {
-            if (otherPeerId !== this.localPeerId && !this.activeConnections.has(otherPeerId)) {
-              this.connectToPeer(otherPeerId);
-            }
-          });
         }
 
         const senderUid = data.senderId || this.peerIdToUid.get(remoteId) || remoteId;
@@ -290,22 +298,6 @@ export class PeerJSManager {
       this.onRemoteStreamRemoved?.(mappedUid);
       this.onRemoteStreamRemoved?.(remoteId);
     });
-  }
-
-  private connectToPeer(targetPeerId: string) {
-    if (!this.peer || this.peer.destroyed || targetPeerId === this.localPeerId) return;
-    if (this.activeConnections.has(targetPeerId)) return;
-
-    try {
-      const conn = this.peer.connect(targetPeerId, { reliable: true });
-      if (conn) {
-        this.setupDataConnection(conn);
-      }
-
-      if (this.localStream) {
-        this.callPeer(targetPeerId);
-      }
-    } catch {}
   }
 
   setLocalStream(stream: MediaStream): void {
@@ -331,9 +323,10 @@ export class PeerJSManager {
       this.callPeer(remotePeerId);
     }
 
-    if (!this.isHost) {
-      const hostPeerId = `tb_${this.cleanRoomId}_host`;
-      this.callPeer(hostPeerId);
+    for (const targetId of this.targetSlotIds) {
+      if (!this.activeCalls.has(targetId)) {
+        this.callPeer(targetId);
+      }
     }
 
     this.broadcast({
@@ -360,9 +353,9 @@ export class PeerJSManager {
 
   destroy(): void {
     this.isDestroyed = true;
-    if (this.retryTimer) {
-      clearInterval(this.retryTimer);
-      this.retryTimer = null;
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
     }
 
     for (const call of this.activeCalls.values()) {
@@ -378,7 +371,6 @@ export class PeerJSManager {
     this.activeCalls.clear();
     this.activeConnections.clear();
     this.peerIdToUid.clear();
-    this.uidToPeerId.clear();
     this.peerIdToName.clear();
 
     if (this.peer) {

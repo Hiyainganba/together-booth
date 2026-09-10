@@ -11,7 +11,7 @@ export function useWebRTC(
   roomId?: string,
   localUid?: string,
   displayName: string = "User",
-  isHost: boolean = false,
+  _isHost: boolean = false,
   onCustomMessage?: (peerId: string, data: unknown) => void
 ) {
   const managerRef = useRef<PeerJSManager | null>(null);
@@ -81,7 +81,7 @@ export function useWebRTC(
       roomId,
       localUid,
       displayName,
-      isHost,
+      false,
       (uid, stream) => {
         addRemoteStream(uid, stream);
       },
@@ -105,7 +105,7 @@ export function useWebRTC(
       manager.destroy();
       managerRef.current = null;
     };
-  }, [roomId, localUid, displayName, isHost, addRemoteStream, removeRemoteStream, handleDataMessage, handleRoomSync, handlePeerHandshake]);
+  }, [roomId, localUid, displayName, addRemoteStream, removeRemoteStream, handleDataMessage, handleRoomSync, handlePeerHandshake]);
 
   useEffect(() => {
     if (managerRef.current && localStream) {
