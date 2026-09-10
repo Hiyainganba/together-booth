@@ -38,15 +38,19 @@ function request(path, method = "GET", data = null) {
 async function runMultiDeviceTest() {
   console.log("=== MULTI-DEVICE (LAPTOP & PHONE) REAL-TIME INTEGRATION TEST ===");
 
-  console.log("1. Device A (Laptop) -> Registering User 1: Sophia (Email + Phone)...");
-  const sophiaUid = "usr_laptop_" + Date.now();
+  const timestamp = Date.now();
+  const sophiaEmail = `sophia_${timestamp}@example.com`;
+  const sophiaPhone = `+1555${Math.floor(1000000 + Math.random() * 9000000)}`;
+  const sophiaUid = "usr_laptop_" + timestamp;
+
+  console.log(`1. Device A (Laptop) -> Registering User 1: Sophia (${sophiaEmail})...`);
   const regRes1 = await request("/api/auth", "POST", {
     action: "register",
     user: {
       uid: sophiaUid,
       displayName: "Sophia Clark",
-      email: "sophia.laptop@example.com",
-      phoneNumber: "+15551112222",
+      email: sophiaEmail,
+      phoneNumber: sophiaPhone,
       password: "Password123",
       photoURL: "https://api.dicebear.com/7.x/bottts/svg?seed=Sophia",
       bio: "Hosting from laptop 💻",
@@ -57,11 +61,12 @@ async function runMultiDeviceTest() {
   assert(regRes1.status === 200, "Registration on Device A failed: " + JSON.stringify(regRes1.data));
   console.log("✓ User 1 registered on server:", regRes1.data.user.displayName);
 
-  console.log("2. Device A (Laptop) -> Creating Room TOG-LAP-01...");
+  const roomId = `TOG-LAP-${Math.floor(100 + Math.random() * 900)}`;
+  console.log(`2. Device A (Laptop) -> Creating Room ${roomId}...`);
   const roomRes = await request("/api/rooms", "POST", {
     room: {
-      id: "TOG-LAP-01",
-      code: "TOG-LAP-01",
+      id: roomId,
+      code: roomId,
       name: "Couple Memory Booth",
       hostId: sophiaUid,
       mode: "couple",
@@ -88,14 +93,15 @@ async function runMultiDeviceTest() {
   assert(roomRes.status === 200, "Room creation failed");
   console.log("✓ Room created by Device A:", roomRes.data.room.code);
 
-  console.log("3. Device B (Phone) -> Registering User 2: Liam (Mobile Phone OTP)...");
-  const liamUid = "usr_phone_" + Date.now();
+  const liamUid = "usr_phone_" + timestamp;
+  const liamPhone = `+1555${Math.floor(1000000 + Math.random() * 9000000)}`;
+  console.log(`3. Device B (Phone) -> Registering User 2: Liam (${liamPhone})...`);
   const regRes2 = await request("/api/auth", "POST", {
     action: "register",
     user: {
       uid: liamUid,
       displayName: "Liam Vance",
-      phoneNumber: "+15553334444",
+      phoneNumber: liamPhone,
       photoURL: "https://api.dicebear.com/7.x/bottts/svg?seed=Liam",
       bio: "Joining from mobile phone 📱",
       isAnonymous: false,
@@ -105,14 +111,14 @@ async function runMultiDeviceTest() {
   assert(regRes2.status === 200, "Registration on Device B failed");
   console.log("✓ User 2 registered on server:", regRes2.data.user.displayName);
 
-  console.log("4. Device B (Phone) -> Fetching Room TOG-LAP-01 by Code...");
-  const getRoomRes = await request("/api/rooms?code=TOG-LAP-01");
+  console.log(`4. Device B (Phone) -> Fetching Room ${roomId} by Code...`);
+  const getRoomRes = await request(`/api/rooms?code=${roomId}`);
   assert(getRoomRes.status === 200, "Device B failed to discover room by code");
   assert(getRoomRes.data.room.name === "Couple Memory Booth");
   console.log("✓ Device B discovered room by code:", getRoomRes.data.room.name);
 
-  console.log("5. Device B (Phone) -> Joining Room TOG-LAP-01...");
-  const joinRes = await request("/api/rooms/TOG-LAP-01/join", "POST", {
+  console.log(`5. Device B (Phone) -> Joining Room ${roomId}...`);
+  const joinRes = await request(`/api/rooms/${roomId}/join`, "POST", {
     participant: {
       uid: liamUid,
       displayName: "Liam Vance",
@@ -130,7 +136,7 @@ async function runMultiDeviceTest() {
   console.log("6. Device B (Phone) -> Cross-Device Login for Sophia on Device B...");
   const loginRes = await request("/api/auth", "POST", {
     action: "login",
-    email: "sophia.laptop@example.com",
+    email: sophiaEmail,
     password: "Password123",
   });
   assert(loginRes.status === 200, "Cross-device login failed");
@@ -139,7 +145,7 @@ async function runMultiDeviceTest() {
   console.log("✓ Real-time cross-device login verified: Sophia logged into Device B successfully!");
 
   console.log("7. Device A -> Syncing countdown trigger...");
-  const patchRes = await request("/api/rooms/TOG-LAP-01", "PATCH", {
+  const patchRes = await request(`/api/rooms/${roomId}`, "PATCH", {
     isCountdownActive: true,
     countdownDuration: 3,
   });

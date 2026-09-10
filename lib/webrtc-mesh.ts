@@ -32,7 +32,10 @@ export class WebRTCMeshManager {
   private localStream: MediaStream | null = null;
   private peerConnections: Map<string, RTCPeerConnection> = new Map();
   private dataChannels: Map<string, RTCDataChannel> = new Map();
+  private pendingCandidates: Map<string, RTCIceCandidateInit[]> = new Map();
   private localPeerId: string;
+  private isDestroyed = false;
+
   private onRemoteStreamCallback?: (peerId: string, stream: MediaStream) => void;
   private onRemoteStreamRemovedCallback?: (peerId: string) => void;
   private onDataMessageCallback?: (peerId: string, data: unknown) => void;
@@ -54,22 +57,60 @@ export class WebRTCMeshManager {
 
   setLocalStream(stream: MediaStream): void {
     this.localStream = stream;
+
     for (const [peerId, pc] of this.peerConnections.entries()) {
-      const senders = pc.getSenders();
-      stream.getTracks().forEach((track) => {
-        const sender = senders.find((s) => s.track?.kind === track.kind);
-        if (sender) {
-          sender.replaceTrack(track);
-        } else {
-          pc.addTrack(track, stream);
+      try {
+        const senders = pc.getSenders();
+        stream.getTracks().forEach((track) => {
+          const sender = senders.find((s) => s.track?.kind === track.kind);
+          if (sender) {
+            sender.replaceTrack(track);
+          } else {
+            pc.addTrack(track, stream);
+          }
+        });
+
+        if (senders.length === 0 && this.localPeerId < peerId) {
+          this.renegotiate(peerId, pc);
         }
-      });
+      } catch {}
+    }
+  }
+
+  private async renegotiate(remotePeerId: string, pc: RTCPeerConnection): Promise<void> {
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      if (pc.localDescription) {
+        this.sendSignalCallback({
+          senderId: this.localPeerId,
+          receiverId: remotePeerId,
+          type: "offer",
+          sdp: pc.localDescription.toJSON(),
+          timestamp: Date.now(),
+        });
+      }
+    } catch {}
+  }
+
+  ensureConnectionWithPeer(remotePeerId: string): void {
+    if (this.isDestroyed || remotePeerId === this.localPeerId) return;
+
+    if (!this.peerConnections.has(remotePeerId)) {
+      const isInitiator = this.localPeerId < remotePeerId;
+      this.createPeerConnection(remotePeerId, isInitiator);
     }
   }
 
   createPeerConnection(remotePeerId: string, isInitiator: boolean): RTCPeerConnection {
-    if (this.peerConnections.has(remotePeerId)) {
-      return this.peerConnections.get(remotePeerId)!;
+    const existing = this.peerConnections.get(remotePeerId);
+    if (existing && existing.connectionState !== "failed" && existing.connectionState !== "closed") {
+      return existing;
+    }
+
+    if (existing) {
+      existing.close();
+      this.peerConnections.delete(remotePeerId);
     }
 
     const pc = new RTCPeerConnection(RTC_CONFIG);
@@ -77,7 +118,9 @@ export class WebRTCMeshManager {
 
     if (this.localStream) {
       this.localStream.getTracks().forEach((track) => {
-        pc.addTrack(track, this.localStream!);
+        try {
+          pc.addTrack(track, this.localStream!);
+        } catch {}
       });
     }
 
@@ -96,22 +139,23 @@ export class WebRTCMeshManager {
     pc.ontrack = (event) => {
       if (event.streams && event.streams[0]) {
         this.onRemoteStreamCallback?.(remotePeerId, event.streams[0]);
+      } else if (event.track) {
+        const inboundStream = new MediaStream([event.track]);
+        this.onRemoteStreamCallback?.(remotePeerId, inboundStream);
       }
     };
 
     pc.onconnectionstatechange = () => {
-      if (
-        pc.connectionState === "disconnected" ||
-        pc.connectionState === "failed" ||
-        pc.connectionState === "closed"
-      ) {
-        this.removePeer(remotePeerId);
+      if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+        this.onRemoteStreamRemovedCallback?.(remotePeerId);
       }
     };
 
     if (isInitiator) {
-      const dc = pc.createDataChannel("photobooth-sync");
-      this.setupDataChannel(remotePeerId, dc);
+      try {
+        const dc = pc.createDataChannel("photobooth_channel");
+        this.setupDataChannel(remotePeerId, dc);
+      } catch {}
 
       pc.createOffer()
         .then((offer) => pc.setLocalDescription(offer))
@@ -138,6 +182,7 @@ export class WebRTCMeshManager {
 
   private setupDataChannel(remotePeerId: string, dc: RTCDataChannel): void {
     this.dataChannels.set(remotePeerId, dc);
+
     dc.onmessage = (event) => {
       try {
         const parsed = JSON.parse(event.data);
@@ -146,40 +191,69 @@ export class WebRTCMeshManager {
         this.onDataMessageCallback?.(remotePeerId, event.data);
       }
     };
+
     dc.onclose = () => {
       this.dataChannels.delete(remotePeerId);
     };
   }
 
   async handleSignal(signal: SignalMessage): Promise<void> {
-    if (signal.receiverId !== this.localPeerId) return;
+    if (this.isDestroyed) return;
+    if (signal.receiverId !== this.localPeerId && signal.receiverId !== "all") return;
+    if (signal.senderId === this.localPeerId) return;
 
     const { senderId, type, sdp, candidate } = signal;
 
     if (type === "offer" && sdp) {
       const pc = this.createPeerConnection(senderId, false);
-      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        
+        const queued = this.pendingCandidates.get(senderId) || [];
+        for (const c of queued) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(c));
+          } catch {}
+        }
+        this.pendingCandidates.delete(senderId);
 
-      this.sendSignalCallback({
-        senderId: this.localPeerId,
-        receiverId: senderId,
-        type: "answer",
-        sdp: pc.localDescription?.toJSON(),
-        timestamp: Date.now(),
-      });
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        if (pc.localDescription) {
+          this.sendSignalCallback({
+            senderId: this.localPeerId,
+            receiverId: senderId,
+            type: "answer",
+            sdp: pc.localDescription.toJSON(),
+            timestamp: Date.now(),
+          });
+        }
+      } catch {}
     } else if (type === "answer" && sdp) {
       const pc = this.peerConnections.get(senderId);
       if (pc) {
-        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+          const queued = this.pendingCandidates.get(senderId) || [];
+          for (const c of queued) {
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(c));
+            } catch {}
+          }
+          this.pendingCandidates.delete(senderId);
+        } catch {}
       }
     } else if (type === "candidate" && candidate) {
       const pc = this.peerConnections.get(senderId);
-      if (pc) {
+      if (pc && pc.remoteDescription) {
         try {
           await pc.addIceCandidate(new RTCIceCandidate(candidate));
         } catch {}
+      } else {
+        const queued = this.pendingCandidates.get(senderId) || [];
+        queued.push(candidate);
+        this.pendingCandidates.set(senderId, queued);
       }
     } else if (type === "leave") {
       this.removePeer(senderId);
@@ -189,33 +263,40 @@ export class WebRTCMeshManager {
   broadcastData(data: unknown): void {
     const payload = JSON.stringify(data);
     for (const dc of this.dataChannels.values()) {
-      if (dc.readyState === "open") {
-        dc.send(payload);
-      }
+      try {
+        if (dc.readyState === "open") {
+          dc.send(payload);
+        }
+      } catch {}
     }
   }
 
   removePeer(remotePeerId: string): void {
     const pc = this.peerConnections.get(remotePeerId);
     if (pc) {
-      pc.close();
+      try {
+        pc.close();
+      } catch {}
       this.peerConnections.delete(remotePeerId);
     }
     const dc = this.dataChannels.get(remotePeerId);
     if (dc) {
-      dc.close();
+      try {
+        dc.close();
+      } catch {}
       this.dataChannels.delete(remotePeerId);
     }
+    this.pendingCandidates.delete(remotePeerId);
     this.onRemoteStreamRemovedCallback?.(remotePeerId);
   }
 
   destroy(): void {
+    this.isDestroyed = true;
     for (const remotePeerId of Array.from(this.peerConnections.keys())) {
       this.removePeer(remotePeerId);
     }
-    if (this.localStream) {
-      this.localStream.getTracks().forEach((t) => t.stop());
-      this.localStream = null;
-    }
+    this.peerConnections.clear();
+    this.dataChannels.clear();
+    this.pendingCandidates.clear();
   }
 }

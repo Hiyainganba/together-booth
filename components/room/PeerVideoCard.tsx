@@ -52,6 +52,21 @@ export function PeerVideoCard({
           videoRef.current.play().catch(() => {});
         }
       });
+
+      const handleTrack = () => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(() => {});
+        }
+      };
+
+      stream.addEventListener("addtrack", handleTrack);
+      stream.addEventListener("removetrack", handleTrack);
+
+      return () => {
+        stream.removeEventListener("addtrack", handleTrack);
+        stream.removeEventListener("removetrack", handleTrack);
+      };
     }
   }, [stream]);
 

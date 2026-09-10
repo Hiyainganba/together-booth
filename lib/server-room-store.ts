@@ -94,19 +94,26 @@ export const serverRoomStore = {
   },
 
   addSignal(roomId: string, signal: SignalMessage): void {
-    const roomSignals = signalsStore.get(roomId) || [];
+    const cleanId = roomId.trim().toUpperCase();
+    const roomSignals = signalsStore.get(cleanId) || signalsStore.get(roomId) || [];
     roomSignals.push({ ...signal, timestamp: signal.timestamp || Date.now() });
 
     if (roomSignals.length > 200) {
       roomSignals.splice(0, roomSignals.length - 200);
     }
-    signalsStore.set(roomId, roomSignals);
+    signalsStore.set(cleanId, roomSignals);
+    if (cleanId !== roomId) {
+      signalsStore.set(roomId, roomSignals);
+    }
   },
 
   getSignals(roomId: string, receiverId: string, since: number = 0): SignalMessage[] {
-    const roomSignals = signalsStore.get(roomId) || [];
+    const cleanId = roomId.trim().toUpperCase();
+    const roomSignals = signalsStore.get(cleanId) || signalsStore.get(roomId) || [];
     return roomSignals.filter(
-      (s) => s.receiverId === receiverId && (!since || (s.timestamp || 0) > since)
+      (s) =>
+        (s.receiverId === receiverId || s.receiverId === "all") &&
+        (!since || (s.timestamp || 0) > since)
     );
   },
 };
