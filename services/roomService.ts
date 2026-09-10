@@ -69,6 +69,13 @@ export const roomService = {
       await setDoc(roomRef, newRoom);
     } else {
       LocalMemoryDatabase.saveRoom(newRoom);
+      try {
+        await fetch("/api/rooms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ room: newRoom }),
+        });
+      } catch {}
     }
 
     return newRoom;
@@ -94,7 +101,26 @@ export const roomService = {
       }
     }
 
-    return LocalMemoryDatabase.getRoom(cleanId);
+    const localRoom = LocalMemoryDatabase.getRoom(cleanId);
+    if (localRoom) return localRoom;
+
+    try {
+      const isCode = cleanId.length <= 10 && !cleanId.startsWith("room_");
+      const url = isCode
+        ? `/api/rooms?code=${encodeURIComponent(cleanId.toUpperCase())}`
+        : `/api/rooms/${encodeURIComponent(cleanId)}`;
+
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.room) {
+          LocalMemoryDatabase.saveRoom(data.room);
+          return data.room as Room;
+        }
+      }
+    } catch {}
+
+    return null;
   },
 
   async joinRoom(
@@ -103,7 +129,7 @@ export const roomService = {
   ): Promise<{ room: Room; participant: Participant }> {
     const existing = await this.getRoom(roomIdOrCode);
     if (!existing) {
-      throw new Error("Photobooth room not found");
+      throw new Error("Photobooth room not found with this code or link");
     }
 
     const participantCount = Object.keys(existing.participants || {}).length;
@@ -138,6 +164,13 @@ export const roomService = {
       });
     } else {
       LocalMemoryDatabase.saveRoom(updatedRoom);
+      try {
+        await fetch(`/api/rooms/${existing.id}/join`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ participant }),
+        });
+      } catch {}
     }
 
     return { room: updatedRoom, participant };
@@ -155,6 +188,13 @@ export const roomService = {
         delete room.participants[uid];
         LocalMemoryDatabase.saveRoom(room);
       }
+      try {
+        await fetch(`/api/rooms/${roomId}/leave`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uid }),
+        });
+      } catch {}
     }
   },
 
@@ -168,6 +208,13 @@ export const roomService = {
         const merged = { ...room, ...updates };
         LocalMemoryDatabase.saveRoom(merged);
       }
+      try {
+        await fetch(`/api/rooms/${roomId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updates),
+        });
+      } catch {}
     }
   },
 
@@ -200,21 +247,44 @@ export const roomService = {
     }
 
     const initial = LocalMemoryDatabase.getRoom(roomId);
-    callback(initial);
+    if (initial) callback(initial);
+
+    let isSubscribed = true;
+
+    const pollServer = async () => {
+      if (!isSubscribed) return;
+      try {
+        const res = await fetch(`/api/rooms/${roomId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.room && isSubscribed) {
+            LocalMemoryDatabase.saveRoom(data.room);
+            callback(data.room);
+          }
+        }
+      } catch {}
+    };
+
+    pollServer();
+    const intervalId = setInterval(pollServer, 800);
 
     const channel = LocalMemoryDatabase.getChannel();
+    let handler: ((event: MessageEvent) => void) | null = null;
     if (channel) {
-      const handler = (event: MessageEvent) => {
-        if (event.data?.type === "room_update" && event.data.payload?.id === roomId) {
+      handler = (event: MessageEvent) => {
+        if (event.data?.type === "room_update" && event.data.payload?.id === roomId && isSubscribed) {
           callback(event.data.payload as Room);
         }
       };
       channel.addEventListener("message", handler);
-      return () => {
-        channel.removeEventListener("message", handler);
-      };
     }
 
-    return () => {};
+    return () => {
+      isSubscribed = false;
+      clearInterval(intervalId);
+      if (channel && handler) {
+        channel.removeEventListener("message", handler);
+      }
+    };
   },
 };
