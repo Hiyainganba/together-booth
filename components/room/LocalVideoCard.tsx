@@ -47,6 +47,9 @@ export function LocalVideoCard({
 
   useEffect(() => {
     if (videoRef.current && stream) {
+      videoRef.current.setAttribute("playsinline", "true");
+      videoRef.current.setAttribute("webkit-playsinline", "true");
+      videoRef.current.playsInline = true;
       videoRef.current.srcObject = stream;
     }
   }, [stream]);
@@ -150,7 +153,7 @@ export function LocalVideoCard({
         )}
       </div>
 
-      <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between z-20">
+      <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between z-20 pointer-events-none">
         <div className="flex items-center gap-1.5">
           <div
             className={cn(
@@ -163,12 +166,6 @@ export function LocalVideoCard({
             {isMicActive ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
           </div>
         </div>
-
-        {filter !== "normal" && (
-          <span className="px-3 py-1 rounded-full bg-black/70 backdrop-blur-md text-[11px] font-bold text-[#FF6F61] border border-[#FF6F61]/30 shadow-md">
-            {filterPreset.name}
-          </span>
-        )}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useRoom } from "@/hooks/useRoom";
 import { useWebRTC } from "@/hooks/useWebRTC";
@@ -43,7 +43,6 @@ export default function RoomPage() {
 
   const localUid = user?.uid || "";
   const displayName = user?.displayName || "Guest";
-  const { broadcastEvent } = useWebRTC(roomId, localUid, displayName, isHost);
 
   const {
     localStream,
@@ -72,6 +71,63 @@ export default function RoomPage() {
   const [countdownDuration, setCountdownDuration] = useState(3);
   const [guestNameInput, setGuestNameInput] = useState("");
   const [isJoiningGuest, setIsJoiningGuest] = useState(false);
+
+  const executeCaptureSession = useCallback((shouldBroadcast: boolean = true) => {
+    if (shouldBroadcast) {
+      broadcastEvent({ type: "session_start" });
+    }
+    const shotsToTake = room?.mode === "group" ? 4 : 3;
+
+    startPhotoSession(
+      shotsToTake,
+      countdownDuration,
+      (shots: CapturedShot[]) => {
+        const initialProject: PhotoStripProject = {
+          id: generateId("proj"),
+          roomId,
+          roomName: room?.name || "Together Photobooth",
+          createdAt: Date.now(),
+          shots,
+          layout: room?.mode === "group" ? "grid-4" : room?.mode === "couple" ? "strip-3" : "strip-3",
+          filter: activeFilter,
+          frameStyle: room?.mode === "couple" ? "heart-romance" : "classic-white",
+          backgroundColor: "transparent",
+          virtualBackground: room?.virtualBackground,
+          customBackgroundUrl: room?.customBackgroundUrl,
+          stickers: [],
+          texts: [],
+          showDateStamp: true,
+          showRoomStamp: true,
+          customStampText: room?.name ? room.name.toUpperCase() : "TOGETHER BOOTH",
+          applyToAllUsers: true,
+        };
+
+        setProject(initialProject);
+        router.push(`/editor/${initialProject.id}`);
+      },
+      (tick) => {
+        if (shouldBroadcast) {
+          broadcastEvent({ type: "countdown_tick", value: tick });
+        }
+      },
+      () => {
+        if (shouldBroadcast) {
+          broadcastEvent({ type: "flash" });
+        }
+      }
+    );
+  }, [room, countdownDuration, startPhotoSession, activeFilter, roomId, setProject, router]);
+
+  const handleCustomMessage = useCallback((senderId: string, data: unknown) => {
+    if (typeof data === "object" && data !== null) {
+      const payload = data as { type?: string };
+      if (payload.type === "session_start") {
+        executeCaptureSession(false);
+      }
+    }
+  }, [executeCaptureSession]);
+
+  const { broadcastEvent } = useWebRTC(roomId, localUid, displayName, isHost, handleCustomMessage);
 
   useEffect(() => {
     if (user && roomId && (!room || !room.participants[user.uid])) {
@@ -114,46 +170,6 @@ export default function RoomPage() {
       type: "layout_change",
       layout,
     });
-  };
-
-  const handleStartCaptureSession = () => {
-    broadcastEvent({ type: "session_start" });
-    const shotsToTake = room?.mode === "group" ? 4 : 3;
-
-    startPhotoSession(
-      shotsToTake,
-      countdownDuration,
-      (shots: CapturedShot[]) => {
-        const initialProject: PhotoStripProject = {
-          id: generateId("proj"),
-          roomId,
-          roomName: room?.name || "Together Photobooth",
-          createdAt: Date.now(),
-          shots,
-          layout: room?.mode === "group" ? "grid-4" : room?.mode === "couple" ? "strip-3" : "strip-3",
-          filter: activeFilter,
-          frameStyle: room?.mode === "couple" ? "heart-romance" : "classic-white",
-          backgroundColor: "transparent",
-          virtualBackground: room?.virtualBackground,
-          customBackgroundUrl: room?.customBackgroundUrl,
-          stickers: [],
-          texts: [],
-          showDateStamp: true,
-          showRoomStamp: true,
-          customStampText: room?.name ? room.name.toUpperCase() : "TOGETHER BOOTH",
-          applyToAllUsers: true,
-        };
-
-        setProject(initialProject);
-        router.push(`/editor/${initialProject.id}`);
-      },
-      (tick) => {
-        broadcastEvent({ type: "countdown_tick", value: tick });
-      },
-      () => {
-        broadcastEvent({ type: "flash" });
-      }
-    );
   };
 
   const handleGuestJoinSubmit = async (e: React.FormEvent) => {
@@ -288,7 +304,7 @@ export default function RoomPage() {
         onToggleMirror={toggleMirror}
         onSelectFilter={handleFilterSelect}
         onSelectCountdown={setCountdownDuration}
-        onStartCapture={handleStartCaptureSession}
+        onStartCapture={() => executeCaptureSession(true)}
         onOpenBackdropModal={() => setIsBackdropModalOpen(true)}
         onSelectBackground={handleSelectVirtualBackground}
       />

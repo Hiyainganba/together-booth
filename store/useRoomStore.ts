@@ -14,6 +14,7 @@ interface RoomState {
   setIsConnecting: (connecting: boolean) => void;
   setError: (error: string | null) => void;
   updateLayout: (layout: LayoutMode) => void;
+  addOrUpdateParticipant: (participant: Participant) => void;
   clearRoom: () => void;
 }
 
@@ -39,6 +40,19 @@ export const useRoomStore = create<RoomState>((set) => ({
   setError: (error) => set({ error }),
   updateLayout: (layout) =>
     set((state) => (state.room ? { room: { ...state.room, layout } } : {})),
+  addOrUpdateParticipant: (participant) =>
+    set((state) => {
+      if (!state.room) return {};
+      return {
+        room: {
+          ...state.room,
+          participants: {
+            ...state.room.participants,
+            [participant.uid]: participant,
+          },
+        },
+      };
+    }),
   clearRoom: () =>
     set({
       room: null,

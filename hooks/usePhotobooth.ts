@@ -2,7 +2,6 @@
 
 import { useEffect, useCallback, useRef } from "react";
 import { usePhotoboothStore } from "@/store/usePhotoboothStore";
-import { useRoomStore } from "@/store/useRoomStore";
 import { soundEffects } from "@/lib/sound-effects";
 import { CapturedShot, CapturedParticipantFrame } from "@/types/photobooth";
 
@@ -33,7 +32,6 @@ export function usePhotobooth() {
     setSelectedCameraId,
   } = usePhotoboothStore();
 
-  const { room } = useRoomStore();
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const initMedia = useCallback(async () => {
@@ -90,6 +88,11 @@ export function usePhotobooth() {
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
 
+      const getWidth = (el: HTMLVideoElement | HTMLCanvasElement) =>
+        el instanceof HTMLVideoElement ? el.videoWidth || 800 : el.width || 800;
+      const getHeight = (el: HTMLVideoElement | HTMLCanvasElement) =>
+        el instanceof HTMLVideoElement ? el.videoHeight || 600 : el.height || 600;
+
       if (elements.length === 0 || !ctx) {
         canvas.width = 800;
         canvas.height = 600;
@@ -107,23 +110,37 @@ export function usePhotobooth() {
 
       const totalElements = elements.length;
 
-      const getWidth = (el: HTMLVideoElement | HTMLCanvasElement) =>
-        el instanceof HTMLVideoElement ? el.videoWidth || 800 : el.width || 800;
-      const getHeight = (el: HTMLVideoElement | HTMLCanvasElement) =>
-        el instanceof HTMLVideoElement ? el.videoHeight || 600 : el.height || 600;
-
       if (totalElements === 1) {
         const el = elements[0];
-        canvas.width = getWidth(el);
-        canvas.height = getHeight(el);
+        canvas.width = 1280;
+        canvas.height = 720;
+
+        const srcW = getWidth(el);
+        const srcH = getHeight(el);
+        const targetRatio = canvas.width / canvas.height;
+        const srcRatio = srcW / srcH;
+
+        let sw = srcW;
+        let sh = srcH;
+        let sx = 0;
+        let sy = 0;
+
+        if (srcRatio > targetRatio) {
+          sw = srcH * targetRatio;
+          sx = (srcW - sw) / 2;
+        } else {
+          sh = srcW / targetRatio;
+          sy = (srcH - sh) / 2;
+        }
 
         if (isMirrored && el instanceof HTMLVideoElement) {
+          ctx.save();
           ctx.translate(canvas.width, 0);
           ctx.scale(-1, 1);
-        }
-        ctx.drawImage(el, 0, 0, canvas.width, canvas.height);
-        if (isMirrored && el instanceof HTMLVideoElement) {
-          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.drawImage(el, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+          ctx.restore();
+        } else {
+          ctx.drawImage(el, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
         }
 
         const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
@@ -145,19 +162,45 @@ export function usePhotobooth() {
         canvas.width = 1280;
         canvas.height = 720;
         const halfWidth = canvas.width / 2;
+        const targetRatio = halfWidth / canvas.height;
 
         elements.forEach((el, idx) => {
+          const srcW = getWidth(el);
+          const srcH = getHeight(el);
+          const srcRatio = srcW / srcH;
+
+          let sw = srcW;
+          let sh = srcH;
+          let sx = 0;
+          let sy = 0;
+
+          if (srcRatio > targetRatio) {
+            sw = srcH * targetRatio;
+            sx = (srcW - sw) / 2;
+          } else {
+            sh = srcW / targetRatio;
+            sy = (srcH - sh) / 2;
+          }
+
           const singleCanvas = document.createElement("canvas");
-          singleCanvas.width = getWidth(el);
-          singleCanvas.height = getHeight(el);
+          singleCanvas.width = srcW;
+          singleCanvas.height = srcH;
           const sCtx = singleCanvas.getContext("2d");
           if (sCtx) {
-            sCtx.drawImage(el, 0, 0, singleCanvas.width, singleCanvas.height);
+            if (isMirrored && idx === 0 && el instanceof HTMLVideoElement) {
+              sCtx.save();
+              sCtx.translate(singleCanvas.width, 0);
+              sCtx.scale(-1, 1);
+              sCtx.drawImage(el, 0, 0, singleCanvas.width, singleCanvas.height);
+              sCtx.restore();
+            } else {
+              sCtx.drawImage(el, 0, 0, singleCanvas.width, singleCanvas.height);
+            }
           }
           const sDataUrl = singleCanvas.toDataURL("image/jpeg", 0.9);
           frames.push({
             peerId: idx === 0 ? "local" : `peer_${idx}`,
-            displayName: idx === 0 ? "You" : `Friend ${idx}`,
+            displayName: idx === 0 ? "You" : `Partner`,
             dataUrl: sDataUrl,
           });
 
@@ -165,7 +208,14 @@ export function usePhotobooth() {
           ctx.beginPath();
           ctx.rect(idx * halfWidth, 0, halfWidth, canvas.height);
           ctx.clip();
-          ctx.drawImage(el, idx * halfWidth, 0, halfWidth, canvas.height);
+
+          if (isMirrored && idx === 0 && el instanceof HTMLVideoElement) {
+            ctx.translate(halfWidth, 0);
+            ctx.scale(-1, 1);
+            ctx.drawImage(el, sx, sy, sw, sh, 0, 0, halfWidth, canvas.height);
+          } else {
+            ctx.drawImage(el, sx, sy, sw, sh, idx * halfWidth, 0, halfWidth, canvas.height);
+          }
           ctx.restore();
         });
 
@@ -183,14 +233,32 @@ export function usePhotobooth() {
       const rows = Math.ceil(totalElements / cols);
       const cellWidth = canvas.width / cols;
       const cellHeight = canvas.height / rows;
+      const cellRatio = cellWidth / cellHeight;
 
       elements.forEach((el, idx) => {
         const c = idx % cols;
         const r = Math.floor(idx / cols);
 
+        const srcW = getWidth(el);
+        const srcH = getHeight(el);
+        const srcRatio = srcW / srcH;
+
+        let sw = srcW;
+        let sh = srcH;
+        let sx = 0;
+        let sy = 0;
+
+        if (srcRatio > cellRatio) {
+          sw = srcH * cellRatio;
+          sx = (srcW - sw) / 2;
+        } else {
+          sh = srcW / cellRatio;
+          sy = (srcH - sh) / 2;
+        }
+
         const singleCanvas = document.createElement("canvas");
-        singleCanvas.width = getWidth(el);
-        singleCanvas.height = getHeight(el);
+        singleCanvas.width = srcW;
+        singleCanvas.height = srcH;
         const sCtx = singleCanvas.getContext("2d");
         if (sCtx) {
           sCtx.drawImage(el, 0, 0, singleCanvas.width, singleCanvas.height);
@@ -202,7 +270,12 @@ export function usePhotobooth() {
           dataUrl: sDataUrl,
         });
 
-        ctx.drawImage(el, c * cellWidth, r * cellHeight, cellWidth, cellHeight);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(c * cellWidth, r * cellHeight, cellWidth, cellHeight);
+        ctx.clip();
+        ctx.drawImage(el, sx, sy, sw, sh, c * cellWidth, r * cellHeight, cellWidth, cellHeight);
+        ctx.restore();
       });
 
       return {

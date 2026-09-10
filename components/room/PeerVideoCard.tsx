@@ -45,6 +45,9 @@ export function PeerVideoCard({
 
   useEffect(() => {
     if (videoRef.current && stream) {
+      videoRef.current.setAttribute("playsinline", "true");
+      videoRef.current.setAttribute("webkit-playsinline", "true");
+      videoRef.current.playsInline = true;
       videoRef.current.srcObject = stream;
       videoRef.current.play().catch(() => {
         if (videoRef.current) {
@@ -164,16 +167,18 @@ export function PeerVideoCard({
         )}
       </div>
 
-      <div className="absolute bottom-4 left-4 flex items-center gap-2 z-20">
-        <div
-          className={cn(
-            "p-2 rounded-full backdrop-blur-md border text-xs shadow-md transition-all",
-            !isAudioMuted
-              ? "bg-black/60 text-white border-white/10"
-              : "bg-red-500/80 text-white border-red-400"
-          )}
-        >
-          {!isAudioMuted ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
+      <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between z-20 pointer-events-none">
+        <div className="flex items-center gap-1.5">
+          <div
+            className={cn(
+              "p-2 rounded-full backdrop-blur-md border text-xs shadow-md transition-all",
+              !isAudioMuted
+                ? "bg-black/60 text-white border-white/10"
+                : "bg-red-500/80 text-white border-red-400"
+            )}
+          >
+            {!isAudioMuted ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
+          </div>
         </div>
       </div>
     </div>

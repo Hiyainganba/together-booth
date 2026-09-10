@@ -6,14 +6,14 @@ import { PeerJSManager, PeerMessagePayload } from "@/lib/peerjs-manager";
 import { useRoomStore } from "@/store/useRoomStore";
 import { usePhotoboothStore } from "@/store/usePhotoboothStore";
 import { FilterType } from "@/types/filter";
-import { LayoutMode, Room } from "@/types/room";
+import { LayoutMode } from "@/types/room";
 import { SignalMessage } from "@/types/webrtc";
 
 export function useWebRTC(
   roomId?: string,
   localUid?: string,
   displayName: string = "User",
-  _isHost: boolean = false,
+  isHost: boolean = false,
   onCustomMessage?: (peerId: string, data: unknown) => void
 ) {
   const meshManagerRef = useRef<WebRTCMeshManager | null>(null);
@@ -21,7 +21,7 @@ export function useWebRTC(
   const lastSignalTimeRef = useRef<number>(0);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const { addRemoteStream, removeRemoteStream, updateLayout, setRoom } = useRoomStore();
+  const { addRemoteStream, removeRemoteStream, updateLayout, setRoom, addOrUpdateParticipant } = useRoomStore();
   const { localStream, setCountdownValue, triggerFlash, setActiveFilter } = usePhotoboothStore();
 
   const handleDataMessage = useCallback(
@@ -88,15 +88,36 @@ export function useWebRTC(
       roomId,
       localUid,
       displayName,
-      false,
-      (uid, stream) => {
+      isHost,
+      (uid, stream, streamDisplayName) => {
         addRemoteStream(uid, stream);
+        if (streamDisplayName) {
+          addOrUpdateParticipant({
+            uid,
+            displayName: streamDisplayName,
+            isHost: false,
+            isAudioMuted: false,
+            isVideoMuted: false,
+            joinedAt: Date.now(),
+          });
+        }
       },
       (uid) => {
         removeRemoteStream(uid);
       },
       (senderId, data) => {
         handleDataMessage(senderId, data);
+      },
+      undefined,
+      (uid, peerDisplayName) => {
+        addOrUpdateParticipant({
+          uid,
+          displayName: peerDisplayName,
+          isHost: false,
+          isAudioMuted: false,
+          isVideoMuted: false,
+          joinedAt: Date.now(),
+        });
       }
     );
     peerjsManagerRef.current = peerjs;
@@ -144,7 +165,17 @@ export function useWebRTC(
       peerjs.destroy();
       peerjsManagerRef.current = null;
     };
-  }, [roomId, localUid, displayName, sendSignal, addRemoteStream, removeRemoteStream, handleDataMessage]);
+  }, [
+    roomId,
+    localUid,
+    displayName,
+    isHost,
+    sendSignal,
+    addRemoteStream,
+    removeRemoteStream,
+    handleDataMessage,
+    addOrUpdateParticipant,
+  ]);
 
   useEffect(() => {
     if (localStream) {
