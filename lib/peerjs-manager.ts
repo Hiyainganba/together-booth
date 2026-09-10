@@ -53,6 +53,10 @@ export class PeerJSManager {
     this.initPeer(preferredId);
   }
 
+  private get isCaller(): boolean {
+    return this.myPeerId.endsWith("_1");
+  }
+
   private initPeer(targetPeerId: string) {
     if (typeof window === "undefined" || this.isDestroyed) return;
 
@@ -123,7 +127,7 @@ export class PeerJSManager {
         } catch {}
       }
 
-      if (this.localStream && (!this.activeCall || !this.activeCall.open)) {
+      if (this.isCaller && this.localStream && (!this.activeCall || !this.activeCall.open)) {
         this.callPartner();
       }
     };
@@ -133,6 +137,7 @@ export class PeerJSManager {
   }
 
   callPartner() {
+    if (!this.isCaller) return;
     if (!this.peer || this.peer.destroyed || !this.localStream || !this.partnerPeerId) return;
     if (this.activeCall && this.activeCall.open) return;
 
@@ -188,7 +193,7 @@ export class PeerJSManager {
         displayName: this.displayName,
       });
 
-      if (this.localStream && (!this.activeCall || !this.activeCall.open)) {
+      if (this.isCaller && this.localStream && (!this.activeCall || !this.activeCall.open)) {
         this.callPartner();
       }
     });
@@ -207,14 +212,18 @@ export class PeerJSManager {
             displayName: this.displayName,
           });
 
-          if (this.localStream && (!this.activeCall || !this.activeCall.open)) {
+          if (this.isCaller && this.localStream && (!this.activeCall || !this.activeCall.open)) {
             this.callPartner();
           }
         } else if (data.type === "peer_handshake_ack" && data.senderId) {
           const partnerName = data.displayName || "Partner 🧸";
           this.onPartnerInfoCallback?.(data.senderId, partnerName);
 
-          if (this.localStream && (!this.activeCall || !this.activeCall.open)) {
+          if (this.isCaller && this.localStream && (!this.activeCall || !this.activeCall.open)) {
+            this.callPartner();
+          }
+        } else if (data.type === "stream_ready") {
+          if (this.isCaller && this.localStream && (!this.activeCall || !this.activeCall.open)) {
             this.callPartner();
           }
         }
@@ -252,8 +261,15 @@ export class PeerJSManager {
           }
         });
       } catch {}
-    } else {
+    } else if (this.isCaller) {
       this.callPartner();
+    } else if (this.activeConnection && this.activeConnection.open) {
+      try {
+        this.activeConnection.send({
+          type: "stream_ready",
+          senderId: this.localUid,
+        });
+      } catch {}
     }
   }
 

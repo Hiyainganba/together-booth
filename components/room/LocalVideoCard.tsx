@@ -53,9 +53,10 @@ export function LocalVideoCard({
       videoEl.setAttribute("playsinline", "true");
       videoEl.setAttribute("webkit-playsinline", "true");
       videoEl.playsInline = true;
+      videoEl.autoplay = true;
       videoEl.muted = true;
       videoEl.srcObject = stream;
-      videoEl.play().catch(() => {});
+      videoEl.play().catch(console.warn);
     }
   }, [stream]);
 
@@ -108,6 +109,7 @@ export function LocalVideoCard({
             data-video-user={userRole}
             autoPlay
             playsInline
+            webkit-playsinline="true"
             muted
             style={{
               filter: filterPreset.cssFilter,

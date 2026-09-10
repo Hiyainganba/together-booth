@@ -53,21 +53,20 @@ export function PeerVideoCard({
     videoEl.setAttribute("webkit-playsinline", "true");
     videoEl.playsInline = true;
     videoEl.autoplay = true;
+    videoEl.muted = true;
     videoEl.srcObject = stream;
 
-    const playVideo = () => {
-      videoEl.play().catch(() => {
-        videoEl.muted = true;
-        videoEl.play().catch(() => {});
-      });
+    videoEl.play().catch(console.warn);
+
+    const handleLoadedMetadata = () => {
+      videoEl.play().catch(console.warn);
     };
 
-    playVideo();
-    videoEl.onloadedmetadata = playVideo;
+    videoEl.onloadedmetadata = handleLoadedMetadata;
 
     const handleTrack = () => {
       videoEl.srcObject = stream;
-      playVideo();
+      videoEl.play().catch(console.warn);
     };
 
     stream.addEventListener("addtrack", handleTrack);
@@ -128,6 +127,8 @@ export function PeerVideoCard({
             data-video-user={userRole}
             autoPlay
             playsInline
+            webkit-playsinline="true"
+            muted
             style={{
               filter: filterPreset.cssFilter,
               position: isSegmenting ? "absolute" : "relative",
