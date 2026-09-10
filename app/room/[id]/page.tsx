@@ -28,23 +28,22 @@ export default function RoomPage() {
   const router = useRouter();
   const urlParams = useParams();
   const rawId = urlParams?.id;
-  const roomId = Array.isArray(rawId) ? rawId[0] : rawId || "";
+  const roomId = (Array.isArray(rawId) ? rawId[0] : rawId || "").toUpperCase();
 
   const { user, isAuthenticated, openAuthModal, signInAsGuest } = useAuth();
   const {
     room,
-    localParticipant,
     remoteStreams,
     isConnecting,
     error,
     isHost,
     joinCurrentRoom,
     changeLayout,
-    startCountdown,
   } = useRoom(roomId);
 
   const localUid = user?.uid || "";
-  const { connectToPeer, broadcastEvent } = useWebRTC(roomId, localUid);
+  const displayName = user?.displayName || "Guest";
+  const { broadcastEvent } = useWebRTC(roomId, localUid, displayName, isHost);
 
   const {
     localStream,
@@ -79,16 +78,6 @@ export default function RoomPage() {
       joinCurrentRoom();
     }
   }, [user, roomId, room, joinCurrentRoom]);
-
-  useEffect(() => {
-    if (room && localUid) {
-      Object.keys(room.participants || {}).forEach((peerId) => {
-        if (peerId !== localUid) {
-          connectToPeer(peerId);
-        }
-      });
-    }
-  }, [room, localUid, connectToPeer]);
 
   const handleSelectVirtualBackground = async (bgId: string, customUrl?: string) => {
     if (roomId) {
@@ -131,30 +120,40 @@ export default function RoomPage() {
     broadcastEvent({ type: "session_start" });
     const shotsToTake = room?.mode === "group" ? 4 : 3;
 
-    startPhotoSession(shotsToTake, countdownDuration, (shots: CapturedShot[]) => {
-      const initialProject: PhotoStripProject = {
-        id: generateId("proj"),
-        roomId,
-        roomName: room?.name || "Together Photobooth",
-        createdAt: Date.now(),
-        shots,
-        layout: room?.mode === "group" ? "grid-4" : room?.mode === "couple" ? "strip-3" : "strip-3",
-        filter: activeFilter,
-        frameStyle: room?.mode === "couple" ? "heart-romance" : "classic-white",
-        backgroundColor: "transparent",
-        virtualBackground: room?.virtualBackground,
-        customBackgroundUrl: room?.customBackgroundUrl,
-        stickers: [],
-        texts: [],
-        showDateStamp: true,
-        showRoomStamp: true,
-        customStampText: room?.name ? room.name.toUpperCase() : "TOGETHER BOOTH",
-        applyToAllUsers: true,
-      };
+    startPhotoSession(
+      shotsToTake,
+      countdownDuration,
+      (shots: CapturedShot[]) => {
+        const initialProject: PhotoStripProject = {
+          id: generateId("proj"),
+          roomId,
+          roomName: room?.name || "Together Photobooth",
+          createdAt: Date.now(),
+          shots,
+          layout: room?.mode === "group" ? "grid-4" : room?.mode === "couple" ? "strip-3" : "strip-3",
+          filter: activeFilter,
+          frameStyle: room?.mode === "couple" ? "heart-romance" : "classic-white",
+          backgroundColor: "transparent",
+          virtualBackground: room?.virtualBackground,
+          customBackgroundUrl: room?.customBackgroundUrl,
+          stickers: [],
+          texts: [],
+          showDateStamp: true,
+          showRoomStamp: true,
+          customStampText: room?.name ? room.name.toUpperCase() : "TOGETHER BOOTH",
+          applyToAllUsers: true,
+        };
 
-      setProject(initialProject);
-      router.push(`/editor/${initialProject.id}`);
-    });
+        setProject(initialProject);
+        router.push(`/editor/${initialProject.id}`);
+      },
+      (tick) => {
+        broadcastEvent({ type: "countdown_tick", value: tick });
+      },
+      () => {
+        broadcastEvent({ type: "flash" });
+      }
+    );
   };
 
   const handleGuestJoinSubmit = async (e: React.FormEvent) => {
@@ -299,7 +298,7 @@ export default function RoomPage() {
       <RoomShareModal
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
-        roomCode={room.code}
+        roomCode={room.code || roomId}
         roomName={room.name}
       />
 

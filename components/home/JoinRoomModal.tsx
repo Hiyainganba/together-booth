@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation";
 import { Modal } from "@/ui/Modal";
 import { Button } from "@/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
-import { roomService } from "@/services/roomService";
-import { LogIn, ArrowRight, Sparkles, Ticket } from "lucide-react";
+import { LogIn, ArrowRight } from "lucide-react";
 
 interface JoinRoomModalProps {
   isOpen: boolean;
@@ -15,7 +14,7 @@ interface JoinRoomModalProps {
 
 export function JoinRoomModal({ isOpen, onClose }: JoinRoomModalProps) {
   const router = useRouter();
-  const { user, isAuthenticated, signInAsGuest } = useAuth();
+  const { isAuthenticated, signInAsGuest } = useAuth();
   const [roomCode, setRoomCode] = useState("");
   const [guestName, setGuestName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -31,25 +30,26 @@ export function JoinRoomModal({ isOpen, onClose }: JoinRoomModalProps) {
     setIsLoading(true);
     setError(null);
 
-    let parsedCode = roomCode.trim();
-    if (parsedCode.includes("/room/")) {
-      const parts = parsedCode.split("/room/");
-      parsedCode = parts[1].split("?")[0].split("#")[0];
+    let parsedCode = roomCode.trim().toUpperCase();
+    if (parsedCode.includes("/ROOM/")) {
+      const parts = parsedCode.split("/ROOM/");
+      parsedCode = parts[1].split("?")[0].split("#")[0].toUpperCase();
+    }
+    parsedCode = parsedCode.replace(/[^A-Z0-9-]/g, "");
+
+    if (!parsedCode) {
+      setError("Invalid room code");
+      setIsLoading(false);
+      return;
     }
 
     try {
-      let currentUser = user;
-      if (!currentUser) {
-        currentUser = await signInAsGuest(guestName.trim() || "Guest Explorer");
-      }
-
-      const room = await roomService.getRoom(parsedCode);
-      if (!room) {
-        throw new Error("No active photobooth room found with this code");
+      if (!isAuthenticated) {
+        await signInAsGuest(guestName.trim() || "Guest Explorer");
       }
 
       onClose();
-      router.push(`/room/${room.id}`);
+      router.push(`/room/${parsedCode}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to join room");
     } finally {

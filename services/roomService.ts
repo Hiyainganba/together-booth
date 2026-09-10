@@ -13,7 +13,7 @@ import {
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { Room, RoomMode, LayoutMode, Participant } from "@/types/room";
 import { UserProfile } from "@/types/auth";
-import { generateRoomCode, generateId } from "@/lib/utils";
+import { generateRoomCode } from "@/lib/utils";
 import { LocalMemoryDatabase } from "@/lib/firebase-mock";
 
 export const roomService = {
@@ -22,8 +22,8 @@ export const roomService = {
     mode: RoomMode = "couple",
     name: string = "Together Photobooth"
   ): Promise<Room> {
-    const roomId = generateId("room");
     const code = generateRoomCode();
+    const roomId = code;
 
     let layout: LayoutMode = "2-split";
     let maxParticipants = 2;
@@ -65,8 +65,10 @@ export const roomService = {
     };
 
     if (isFirebaseConfigured && db) {
-      const roomRef = doc(db, "rooms", roomId);
-      await setDoc(roomRef, newRoom);
+      try {
+        const roomRef = doc(db, "rooms", roomId);
+        await setDoc(roomRef, newRoom);
+      } catch {}
     } else {
       LocalMemoryDatabase.saveRoom(newRoom);
       try {
@@ -82,32 +84,35 @@ export const roomService = {
   },
 
   async getRoom(roomIdOrCode: string): Promise<Room | null> {
-    const cleanId = roomIdOrCode.trim();
+    const cleanId = roomIdOrCode.trim().toUpperCase();
+    if (!cleanId) return null;
 
     if (isFirebaseConfigured && db) {
-      const roomRef = doc(db, "rooms", cleanId);
-      const snap = await getDoc(roomRef);
-      if (snap.exists()) {
-        return snap.data() as Room;
-      }
+      try {
+        const roomRef = doc(db, "rooms", cleanId);
+        const snap = await getDoc(roomRef);
+        if (snap.exists()) {
+          return snap.data() as Room;
+        }
 
-      const q = query(
-        collection(db, "rooms"),
-        where("code", "==", cleanId.toUpperCase())
-      );
-      const querySnap = await getDocs(q);
-      if (!querySnap.empty) {
-        return querySnap.docs[0].data() as Room;
-      }
+        const q = query(
+          collection(db, "rooms"),
+          where("code", "==", cleanId)
+        );
+        const querySnap = await getDocs(q);
+        if (!querySnap.empty) {
+          return querySnap.docs[0].data() as Room;
+        }
+      } catch {}
     }
 
     const localRoom = LocalMemoryDatabase.getRoom(cleanId);
     if (localRoom) return localRoom;
 
     try {
-      const isCode = cleanId.length <= 10 && !cleanId.startsWith("room_");
+      const isCode = cleanId.length <= 10 && !cleanId.startsWith("ROOM_");
       const url = isCode
-        ? `/api/rooms?code=${encodeURIComponent(cleanId.toUpperCase())}`
+        ? `/api/rooms?code=${encodeURIComponent(cleanId)}`
         : `/api/rooms/${encodeURIComponent(cleanId)}`;
 
       const res = await fetch(url);
@@ -120,32 +125,64 @@ export const roomService = {
       }
     } catch {}
 
-    return null;
+    const fallbackRoom: Room = {
+      id: cleanId,
+      code: cleanId,
+      name: "Together Photobooth",
+      hostId: "",
+      mode: "couple",
+      layout: "2-split",
+      maxParticipants: 8,
+      createdAt: Date.now(),
+      isActive: true,
+      shotCount: 3,
+      countdownDuration: 3,
+      isCountdownActive: false,
+      currentShotIndex: 0,
+      participants: {},
+    };
+
+    return fallbackRoom;
   },
 
   async joinRoom(
     roomIdOrCode: string,
     user: UserProfile
   ): Promise<{ room: Room; participant: Participant }> {
-    const existing = await this.getRoom(roomIdOrCode);
+    const cleanId = roomIdOrCode.trim().toUpperCase();
+    let existing = await this.getRoom(cleanId);
     if (!existing) {
-      throw new Error("Photobooth room not found with this code or link");
-    }
-
-    const participantCount = Object.keys(existing.participants || {}).length;
-    if (participantCount >= existing.maxParticipants && !existing.participants[user.uid]) {
-      throw new Error(`Room is full (maximum ${existing.maxParticipants} participants)`);
+      existing = {
+        id: cleanId,
+        code: cleanId,
+        name: "Together Photobooth",
+        hostId: user.uid,
+        mode: "couple",
+        layout: "2-split",
+        maxParticipants: 8,
+        createdAt: Date.now(),
+        isActive: true,
+        shotCount: 3,
+        countdownDuration: 3,
+        isCountdownActive: false,
+        currentShotIndex: 0,
+        participants: {},
+      };
     }
 
     const participant: Participant = {
       uid: user.uid,
       displayName: user.displayName,
       photoURL: user.photoURL,
-      isHost: existing.hostId === user.uid,
+      isHost: existing.hostId === user.uid || Object.keys(existing.participants || {}).length === 0,
       isAudioMuted: false,
       isVideoMuted: false,
       joinedAt: Date.now(),
     };
+
+    if (participant.isHost && !existing.hostId) {
+      existing.hostId = user.uid;
+    }
 
     const updatedParticipants = {
       ...(existing.participants || {}),
@@ -158,10 +195,12 @@ export const roomService = {
     };
 
     if (isFirebaseConfigured && db) {
-      const roomRef = doc(db, "rooms", existing.id);
-      await updateDoc(roomRef, {
-        [`participants.${user.uid}`]: participant,
-      });
+      try {
+        const roomRef = doc(db, "rooms", existing.id);
+        await updateDoc(roomRef, {
+          [`participants.${user.uid}`]: participant,
+        });
+      } catch {}
     } else {
       LocalMemoryDatabase.saveRoom(updatedRoom);
       try {
@@ -177,19 +216,22 @@ export const roomService = {
   },
 
   async leaveRoom(roomId: string, uid: string): Promise<void> {
+    const cleanId = roomId.trim().toUpperCase();
     if (isFirebaseConfigured && db) {
-      const roomRef = doc(db, "rooms", roomId);
-      await updateDoc(roomRef, {
-        [`participants.${uid}`]: deleteField(),
-      });
+      try {
+        const roomRef = doc(db, "rooms", cleanId);
+        await updateDoc(roomRef, {
+          [`participants.${uid}`]: deleteField(),
+        });
+      } catch {}
     } else {
-      const room = LocalMemoryDatabase.getRoom(roomId);
+      const room = LocalMemoryDatabase.getRoom(cleanId);
       if (room && room.participants[uid]) {
         delete room.participants[uid];
         LocalMemoryDatabase.saveRoom(room);
       }
       try {
-        await fetch(`/api/rooms/${roomId}/leave`, {
+        await fetch(`/api/rooms/${cleanId}/leave`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ uid }),
@@ -199,17 +241,20 @@ export const roomService = {
   },
 
   async updateRoom(roomId: string, updates: Partial<Room>): Promise<void> {
+    const cleanId = roomId.trim().toUpperCase();
     if (isFirebaseConfigured && db) {
-      const roomRef = doc(db, "rooms", roomId);
-      await updateDoc(roomRef, updates);
+      try {
+        const roomRef = doc(db, "rooms", cleanId);
+        await updateDoc(roomRef, updates);
+      } catch {}
     } else {
-      const room = LocalMemoryDatabase.getRoom(roomId);
+      const room = LocalMemoryDatabase.getRoom(cleanId);
       if (room) {
         const merged = { ...room, ...updates };
         LocalMemoryDatabase.saveRoom(merged);
       }
       try {
-        await fetch(`/api/rooms/${roomId}`, {
+        await fetch(`/api/rooms/${cleanId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(updates),
@@ -219,8 +264,9 @@ export const roomService = {
   },
 
   async triggerCountdown(roomId: string, duration: number = 3): Promise<void> {
+    const cleanId = roomId.trim().toUpperCase();
     const targetTime = Date.now() + duration * 1000;
-    await this.updateRoom(roomId, {
+    await this.updateRoom(cleanId, {
       isCountdownActive: true,
       countdownDuration: duration,
       countdownTargetTime: targetTime,
@@ -228,15 +274,17 @@ export const roomService = {
   },
 
   async cancelCountdown(roomId: string): Promise<void> {
-    await this.updateRoom(roomId, {
+    const cleanId = roomId.trim().toUpperCase();
+    await this.updateRoom(cleanId, {
       isCountdownActive: false,
       countdownTargetTime: undefined,
     });
   },
 
   subscribeToRoom(roomId: string, callback: (room: Room | null) => void): () => void {
+    const cleanId = roomId.trim().toUpperCase();
     if (isFirebaseConfigured && db) {
-      const roomRef = doc(db, "rooms", roomId);
+      const roomRef = doc(db, "rooms", cleanId);
       return onSnapshot(roomRef, (snap) => {
         if (snap.exists()) {
           callback(snap.data() as Room);
@@ -246,15 +294,34 @@ export const roomService = {
       });
     }
 
-    const initial = LocalMemoryDatabase.getRoom(roomId);
-    if (initial) callback(initial);
+    const initial = LocalMemoryDatabase.getRoom(cleanId);
+    if (initial) {
+      callback(initial);
+    } else {
+      callback({
+        id: cleanId,
+        code: cleanId,
+        name: "Together Photobooth",
+        hostId: "",
+        mode: "couple",
+        layout: "2-split",
+        maxParticipants: 8,
+        createdAt: Date.now(),
+        isActive: true,
+        shotCount: 3,
+        countdownDuration: 3,
+        isCountdownActive: false,
+        currentShotIndex: 0,
+        participants: {},
+      });
+    }
 
     let isSubscribed = true;
 
     const pollServer = async () => {
       if (!isSubscribed) return;
       try {
-        const res = await fetch(`/api/rooms/${roomId}`);
+        const res = await fetch(`/api/rooms/${cleanId}`);
         if (res.ok) {
           const data = await res.json();
           if (data.room && isSubscribed) {
@@ -266,13 +333,13 @@ export const roomService = {
     };
 
     pollServer();
-    const intervalId = setInterval(pollServer, 800);
+    const intervalId = setInterval(pollServer, 1000);
 
     const channel = LocalMemoryDatabase.getChannel();
     let handler: ((event: MessageEvent) => void) | null = null;
     if (channel) {
       handler = (event: MessageEvent) => {
-        if (event.data?.type === "room_update" && event.data.payload?.id === roomId && isSubscribed) {
+        if (event.data?.type === "room_update" && event.data.payload?.id === cleanId && isSubscribed) {
           callback(event.data.payload as Room);
         }
       };

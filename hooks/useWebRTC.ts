@@ -1,118 +1,99 @@
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
-import { WebRTCMeshManager } from "@/lib/webrtc-mesh";
-import { signalingService } from "@/services/signalingService";
-import { SignalMessage } from "@/types/webrtc";
+import { PeerJSManager, PeerMessagePayload } from "@/lib/peerjs-manager";
 import { useRoomStore } from "@/store/useRoomStore";
 import { usePhotoboothStore } from "@/store/usePhotoboothStore";
 import { FilterType } from "@/types/filter";
-import { LayoutMode } from "@/types/room";
+import { LayoutMode, Room } from "@/types/room";
 
 export function useWebRTC(
   roomId?: string,
   localUid?: string,
+  displayName: string = "User",
+  isHost: boolean = false,
   onCustomMessage?: (peerId: string, data: unknown) => void
 ) {
-  const meshManagerRef = useRef<WebRTCMeshManager | null>(null);
-  const { addRemoteStream, removeRemoteStream, updateLayout, setRoom, room } = useRoomStore();
+  const managerRef = useRef<PeerJSManager | null>(null);
+  const { addRemoteStream, removeRemoteStream, updateLayout, setRoom } = useRoomStore();
   const { localStream, setCountdownValue, triggerFlash, setActiveFilter } = usePhotoboothStore();
 
   const handleDataMessage = useCallback(
-    (peerId: string, data: unknown) => {
-      if (typeof data === "object" && data !== null) {
-        const payload = data as {
-          type?: string;
-          value?: number;
-          filter?: FilterType;
-          background?: string;
-          customUrl?: string;
-          layout?: LayoutMode;
-        };
-
-        if (payload.type === "countdown_tick") {
-          setCountdownValue(payload.value ?? null);
-        } else if (payload.type === "flash") {
-          triggerFlash();
-        } else if (payload.type === "filter_change" && payload.filter) {
-          setActiveFilter(payload.filter);
-        } else if (payload.type === "layout_change" && payload.layout) {
-          updateLayout(payload.layout);
-        } else if (payload.type === "background_change" && payload.background) {
-          const current = useRoomStore.getState().room;
-          if (current) {
-            setRoom({
-              ...current,
-              virtualBackground: payload.background,
-              customBackgroundUrl: payload.customUrl,
-            });
-          }
+    (senderId: string, payload: PeerMessagePayload) => {
+      if (payload.type === "countdown_tick") {
+        setCountdownValue(payload.value ?? null);
+      } else if (payload.type === "flash") {
+        triggerFlash();
+      } else if (payload.type === "filter_change" && payload.filter) {
+        setActiveFilter(payload.filter as FilterType);
+      } else if (payload.type === "layout_change" && payload.layout) {
+        updateLayout(payload.layout as LayoutMode);
+      } else if (payload.type === "background_change" && payload.background) {
+        const current = useRoomStore.getState().room;
+        if (current) {
+          setRoom({
+            ...current,
+            virtualBackground: payload.background,
+            customBackgroundUrl: payload.customUrl,
+          });
         }
       }
 
-      onCustomMessage?.(peerId, data);
+      onCustomMessage?.(senderId, payload);
     },
     [setCountdownValue, triggerFlash, setActiveFilter, updateLayout, setRoom, onCustomMessage]
+  );
+
+  const handleRoomSync = useCallback(
+    (syncedRoom: Room) => {
+      setRoom(syncedRoom);
+    },
+    [setRoom]
   );
 
   useEffect(() => {
     if (!roomId || !localUid) return;
 
-    const manager = new WebRTCMeshManager(
-      localUid,
-      (signal: SignalMessage) => {
-        signalingService.sendSignal(roomId, signal);
-      },
-      (peerId: string, stream: MediaStream) => {
-        addRemoteStream(peerId, stream);
-      },
-      (peerId: string) => {
-        removeRemoteStream(peerId);
-      },
-      handleDataMessage
-    );
-
-    meshManagerRef.current = manager;
-
-    const unsubSignals = signalingService.subscribeToSignals(
+    const manager = new PeerJSManager(
       roomId,
       localUid,
-      (signal) => {
-        manager.handleSignal(signal);
+      displayName,
+      isHost,
+      (uid, stream) => {
+        addRemoteStream(uid, stream);
+      },
+      (uid) => {
+        removeRemoteStream(uid);
+      },
+      (senderId, data) => {
+        handleDataMessage(senderId, data);
+      },
+      (syncedRoom) => {
+        handleRoomSync(syncedRoom);
       }
     );
 
+    managerRef.current = manager;
+
     return () => {
-      unsubSignals();
       manager.destroy();
-      meshManagerRef.current = null;
+      managerRef.current = null;
     };
-  }, [roomId, localUid, addRemoteStream, removeRemoteStream, handleDataMessage]);
+  }, [roomId, localUid, displayName, isHost, addRemoteStream, removeRemoteStream, handleDataMessage, handleRoomSync]);
 
   useEffect(() => {
-    if (meshManagerRef.current && localStream) {
-      meshManagerRef.current.setLocalStream(localStream);
+    if (managerRef.current && localStream) {
+      managerRef.current.setLocalStream(localStream);
     }
   }, [localStream]);
 
-  const connectToPeer = useCallback(
-    (remotePeerId: string) => {
-      if (meshManagerRef.current && localUid && remotePeerId > localUid) {
-        meshManagerRef.current.createPeerConnection(remotePeerId, true);
-      }
-    },
-    [localUid]
-  );
-
-  const broadcastEvent = useCallback((event: unknown) => {
-    if (meshManagerRef.current) {
-      meshManagerRef.current.broadcastData(event);
+  const broadcastEvent = useCallback((event: Record<string, unknown>) => {
+    if (managerRef.current) {
+      managerRef.current.broadcast(event as PeerMessagePayload);
     }
   }, []);
 
   return {
-    connectToPeer,
     broadcastEvent,
   };
 }
-

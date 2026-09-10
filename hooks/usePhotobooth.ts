@@ -219,7 +219,9 @@ export function usePhotobooth() {
     async (
       totalShots: number = 3,
       countdownSec: number = 3,
-      onComplete?: (shots: CapturedShot[]) => void
+      onComplete?: (shots: CapturedShot[]) => void,
+      onTick?: (val: number | null) => void,
+      onFlash?: () => void
     ) => {
       if (isCapturing) return;
       setIsCapturing(true);
@@ -230,13 +232,16 @@ export function usePhotobooth() {
       for (let shot = 1; shot <= totalShots; shot++) {
         for (let cd = countdownSec; cd > 0; cd--) {
           setCountdownValue(cd);
+          onTick?.(cd);
           soundEffects.playCountdownTick(cd === 1);
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
 
         setCountdownValue(0);
+        onTick?.(0);
         soundEffects.playShutter();
         triggerFlash();
+        onFlash?.();
 
         await new Promise((resolve) => setTimeout(resolve, 150));
         const shotData = captureCurrentComposition(shot);
@@ -244,6 +249,7 @@ export function usePhotobooth() {
         addCapturedShot(shotData);
 
         setCountdownValue(null);
+        onTick?.(null);
 
         if (shot < totalShots) {
           await new Promise((resolve) => setTimeout(resolve, 1200));
