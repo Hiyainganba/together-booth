@@ -77,13 +77,21 @@ export function usePhotobooth() {
     (shotIndex: number): CapturedShot => {
       const frames: CapturedParticipantFrame[] = [];
 
-      const markedElements = document.querySelectorAll<HTMLVideoElement | HTMLCanvasElement>(
-        "[data-video-source='true']"
-      );
-      const elements: (HTMLVideoElement | HTMLCanvasElement)[] =
-        markedElements.length > 0
-          ? Array.from(markedElements)
-          : Array.from(document.querySelectorAll<HTMLVideoElement>("video"));
+      const hostEl = document.querySelector<HTMLVideoElement | HTMLCanvasElement>("[data-video-user='host']");
+      const guestEl = document.querySelector<HTMLVideoElement | HTMLCanvasElement>("[data-video-user='guest']");
+
+      let elements: (HTMLVideoElement | HTMLCanvasElement)[] = [];
+      if (hostEl && guestEl) {
+        elements = [hostEl, guestEl];
+      } else {
+        const markedElements = document.querySelectorAll<HTMLVideoElement | HTMLCanvasElement>(
+          "[data-video-source='true']"
+        );
+        elements =
+          markedElements.length > 0
+            ? Array.from(markedElements)
+            : Array.from(document.querySelectorAll<HTMLVideoElement>("video"));
+      }
 
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
@@ -182,12 +190,15 @@ export function usePhotobooth() {
             sy = (srcH - sh) / 2;
           }
 
+          const isLocal = el.getAttribute("data-video-role") === "local";
+          const shouldMirror = isMirrored && isLocal && el instanceof HTMLVideoElement;
+
           const singleCanvas = document.createElement("canvas");
           singleCanvas.width = srcW;
           singleCanvas.height = srcH;
           const sCtx = singleCanvas.getContext("2d");
           if (sCtx) {
-            if (isMirrored && idx === 0 && el instanceof HTMLVideoElement) {
+            if (shouldMirror) {
               sCtx.save();
               sCtx.translate(singleCanvas.width, 0);
               sCtx.scale(-1, 1);
@@ -199,8 +210,8 @@ export function usePhotobooth() {
           }
           const sDataUrl = singleCanvas.toDataURL("image/jpeg", 0.9);
           frames.push({
-            peerId: idx === 0 ? "local" : `peer_${idx}`,
-            displayName: idx === 0 ? "You" : `Partner`,
+            peerId: idx === 0 ? "host" : "guest",
+            displayName: idx === 0 ? "Host" : "Partner",
             dataUrl: sDataUrl,
           });
 
@@ -209,8 +220,8 @@ export function usePhotobooth() {
           ctx.rect(idx * halfWidth, 0, halfWidth, canvas.height);
           ctx.clip();
 
-          if (isMirrored && idx === 0 && el instanceof HTMLVideoElement) {
-            ctx.translate(halfWidth, 0);
+          if (shouldMirror) {
+            ctx.translate(idx * halfWidth + halfWidth, 0);
             ctx.scale(-1, 1);
             ctx.drawImage(el, sx, sy, sw, sh, 0, 0, halfWidth, canvas.height);
           } else {

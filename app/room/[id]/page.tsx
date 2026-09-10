@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useRoom } from "@/hooks/useRoom";
 import { useWebRTC } from "@/hooks/useWebRTC";
@@ -72,62 +72,75 @@ export default function RoomPage() {
   const [guestNameInput, setGuestNameInput] = useState("");
   const [isJoiningGuest, setIsJoiningGuest] = useState(false);
 
-  const executeCaptureSession = useCallback((shouldBroadcast: boolean = true) => {
-    if (shouldBroadcast) {
-      broadcastEvent({ type: "session_start" });
-    }
-    const shotsToTake = room?.mode === "group" ? 4 : 3;
+  const broadcastEventRef = useRef<((event: Record<string, unknown>) => void) | null>(null);
 
-    startPhotoSession(
-      shotsToTake,
-      countdownDuration,
-      (shots: CapturedShot[]) => {
-        const initialProject: PhotoStripProject = {
-          id: generateId("proj"),
-          roomId,
-          roomName: room?.name || "Together Photobooth",
-          createdAt: Date.now(),
-          shots,
-          layout: room?.mode === "group" ? "grid-4" : room?.mode === "couple" ? "strip-3" : "strip-3",
-          filter: activeFilter,
-          frameStyle: room?.mode === "couple" ? "heart-romance" : "classic-white",
-          backgroundColor: "transparent",
-          virtualBackground: room?.virtualBackground,
-          customBackgroundUrl: room?.customBackgroundUrl,
-          stickers: [],
-          texts: [],
-          showDateStamp: true,
-          showRoomStamp: true,
-          customStampText: room?.name ? room.name.toUpperCase() : "TOGETHER BOOTH",
-          applyToAllUsers: true,
-        };
+  const executeCaptureSession = useCallback(
+    (shouldBroadcast: boolean = true, incomingProjectId?: string) => {
+      const activeProjId = incomingProjectId || generateId("proj");
+      if (shouldBroadcast) {
+        broadcastEventRef.current?.({ type: "session_start", projectId: activeProjId });
+      }
+      const shotsToTake = room?.mode === "group" ? 4 : 3;
 
-        setProject(initialProject);
-        router.push(`/editor/${initialProject.id}`);
-      },
-      (tick) => {
-        if (shouldBroadcast) {
-          broadcastEvent({ type: "countdown_tick", value: tick });
+      startPhotoSession(
+        shotsToTake,
+        countdownDuration,
+        (shots: CapturedShot[]) => {
+          const initialProject: PhotoStripProject = {
+            id: activeProjId,
+            roomId,
+            roomName: room?.name || "Together Photobooth",
+            createdAt: Date.now(),
+            shots,
+            layout: room?.mode === "group" ? "grid-4" : "strip-3",
+            filter: activeFilter,
+            frameStyle: room?.mode === "couple" ? "heart-romance" : "classic-white",
+            backgroundColor: "transparent",
+            virtualBackground: room?.virtualBackground,
+            customBackgroundUrl: room?.customBackgroundUrl,
+            stickers: [],
+            texts: [],
+            showDateStamp: true,
+            showRoomStamp: true,
+            customStampText: room?.name ? room.name.toUpperCase() : "TOGETHER BOOTH",
+            applyToAllUsers: true,
+          };
+
+          setProject(initialProject);
+          router.push(`/editor/${initialProject.id}`);
+        },
+        (tick) => {
+          if (shouldBroadcast) {
+            broadcastEventRef.current?.({ type: "countdown_tick", value: tick });
+          }
+        },
+        () => {
+          if (shouldBroadcast) {
+            broadcastEventRef.current?.({ type: "flash" });
+          }
         }
-      },
-      () => {
-        if (shouldBroadcast) {
-          broadcastEvent({ type: "flash" });
+      );
+    },
+    [room, countdownDuration, startPhotoSession, activeFilter, roomId, setProject, router]
+  );
+
+  const handleCustomMessage = useCallback(
+    (senderId: string, data: unknown) => {
+      if (typeof data === "object" && data !== null) {
+        const payload = data as { type?: string; projectId?: string };
+        if (payload.type === "session_start") {
+          executeCaptureSession(false, payload.projectId);
         }
       }
-    );
-  }, [room, countdownDuration, startPhotoSession, activeFilter, roomId, setProject, router]);
-
-  const handleCustomMessage = useCallback((senderId: string, data: unknown) => {
-    if (typeof data === "object" && data !== null) {
-      const payload = data as { type?: string };
-      if (payload.type === "session_start") {
-        executeCaptureSession(false);
-      }
-    }
-  }, [executeCaptureSession]);
+    },
+    [executeCaptureSession]
+  );
 
   const { broadcastEvent } = useWebRTC(roomId, localUid, displayName, isHost, handleCustomMessage);
+
+  useEffect(() => {
+    broadcastEventRef.current = broadcastEvent;
+  }, [broadcastEvent]);
 
   useEffect(() => {
     if (user && roomId && (!room || !room.participants[user.uid])) {

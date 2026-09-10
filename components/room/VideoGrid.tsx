@@ -66,6 +66,7 @@ export function VideoGrid({
   const isCoupleMode = room.mode === "couple" || room.layout === "2-split" || (room.maxParticipants === 2);
   const currentVirtualBg = room.virtualBackground || "none";
   const currentCustomBg = room.customBackgroundUrl;
+  const isHost = Boolean(room.hostId === localUid || room.participants[localUid]?.isHost);
 
   const getStreamForPeer = (peer: Participant, index: number): MediaStream | undefined => {
     if (remoteStreams[peer.uid]) return remoteStreams[peer.uid];
@@ -88,6 +89,7 @@ export function VideoGrid({
             isCameraActive={isCameraActive}
             isMirrored={isMirrored}
             filter={filter}
+            isHost={isHost}
             virtualBackground={currentVirtualBg}
             customBackgroundUrl={currentCustomBg}
           />
@@ -101,6 +103,7 @@ export function VideoGrid({
               displayName={remotePeer?.displayName || "Partner 🧸"}
               isAudioMuted={remotePeer?.isAudioMuted || false}
               filter={filter}
+              isHost={!isHost}
               virtualBackground={currentVirtualBg}
               customBackgroundUrl={currentCustomBg}
             />

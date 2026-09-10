@@ -15,6 +15,7 @@ interface LocalVideoCardProps {
   isCameraActive: boolean;
   isMirrored: boolean;
   filter: FilterType;
+  isHost?: boolean;
   virtualBackground?: string;
   customBackgroundUrl?: string;
   className?: string;
@@ -27,6 +28,7 @@ export function LocalVideoCard({
   isCameraActive,
   isMirrored,
   filter,
+  isHost = true,
   virtualBackground = "none",
   customBackgroundUrl,
   className,
@@ -46,11 +48,14 @@ export function LocalVideoCard({
   }, []);
 
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.setAttribute("playsinline", "true");
-      videoRef.current.setAttribute("webkit-playsinline", "true");
-      videoRef.current.playsInline = true;
-      videoRef.current.srcObject = stream;
+    const videoEl = videoRef.current;
+    if (videoEl && stream) {
+      videoEl.setAttribute("playsinline", "true");
+      videoEl.setAttribute("webkit-playsinline", "true");
+      videoEl.playsInline = true;
+      videoEl.muted = true;
+      videoEl.srcObject = stream;
+      videoEl.play().catch(() => {});
     }
   }, [stream]);
 
@@ -85,6 +90,8 @@ export function LocalVideoCard({
     };
   }, [isSegmenting, bgPreset, isMirrored, isCameraActive]);
 
+  const userRole = isHost ? "host" : "guest";
+
   return (
     <div
       className={cn(
@@ -96,7 +103,9 @@ export function LocalVideoCard({
         <>
           <video
             ref={videoRef}
-            data-video-source={!isSegmenting ? "true" : undefined}
+            data-video-source="true"
+            data-video-role="local"
+            data-video-user={userRole}
             autoPlay
             playsInline
             muted
@@ -114,7 +123,9 @@ export function LocalVideoCard({
 
           <canvas
             ref={canvasRef}
-            data-video-source={isSegmenting ? "true" : undefined}
+            data-video-source="true"
+            data-video-role="local"
+            data-video-user={userRole}
             style={{
               filter: filterPreset.cssFilter,
               position: isSegmenting ? "relative" : "absolute",

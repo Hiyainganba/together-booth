@@ -14,6 +14,7 @@ interface PeerVideoCardProps {
   peerId?: string;
   isAudioMuted?: boolean;
   filter: FilterType;
+  isHost?: boolean;
   virtualBackground?: string;
   customBackgroundUrl?: string;
   className?: string;
@@ -25,6 +26,7 @@ export function PeerVideoCard({
   peerId = "peer",
   isAudioMuted = false,
   filter,
+  isHost = false,
   virtualBackground = "none",
   customBackgroundUrl,
   className,
@@ -44,33 +46,38 @@ export function PeerVideoCard({
   }, []);
 
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.setAttribute("playsinline", "true");
-      videoRef.current.setAttribute("webkit-playsinline", "true");
-      videoRef.current.playsInline = true;
-      videoRef.current.srcObject = stream;
-      videoRef.current.play().catch(() => {
-        if (videoRef.current) {
-          videoRef.current.muted = true;
-          videoRef.current.play().catch(() => {});
-        }
+    const videoEl = videoRef.current;
+    if (!videoEl || !stream) return;
+
+    videoEl.setAttribute("playsinline", "true");
+    videoEl.setAttribute("webkit-playsinline", "true");
+    videoEl.playsInline = true;
+    videoEl.autoplay = true;
+    videoEl.srcObject = stream;
+
+    const playVideo = () => {
+      videoEl.play().catch(() => {
+        videoEl.muted = true;
+        videoEl.play().catch(() => {});
       });
+    };
 
-      const handleTrack = () => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      };
+    playVideo();
+    videoEl.onloadedmetadata = playVideo;
 
-      stream.addEventListener("addtrack", handleTrack);
-      stream.addEventListener("removetrack", handleTrack);
+    const handleTrack = () => {
+      videoEl.srcObject = stream;
+      playVideo();
+    };
 
-      return () => {
-        stream.removeEventListener("addtrack", handleTrack);
-        stream.removeEventListener("removetrack", handleTrack);
-      };
-    }
+    stream.addEventListener("addtrack", handleTrack);
+    stream.addEventListener("removetrack", handleTrack);
+
+    return () => {
+      stream.removeEventListener("addtrack", handleTrack);
+      stream.removeEventListener("removetrack", handleTrack);
+      videoEl.onloadedmetadata = null;
+    };
   }, [stream]);
 
   useEffect(() => {
@@ -103,6 +110,8 @@ export function PeerVideoCard({
     };
   }, [isSegmenting, bgPreset, stream, peerId]);
 
+  const userRole = isHost ? "host" : "guest";
+
   return (
     <div
       className={cn(
@@ -114,7 +123,9 @@ export function PeerVideoCard({
         <>
           <video
             ref={videoRef}
-            data-video-source={!isSegmenting ? "true" : undefined}
+            data-video-source="true"
+            data-video-role="remote"
+            data-video-user={userRole}
             autoPlay
             playsInline
             style={{
@@ -128,7 +139,9 @@ export function PeerVideoCard({
 
           <canvas
             ref={canvasRef}
-            data-video-source={isSegmenting ? "true" : undefined}
+            data-video-source="true"
+            data-video-role="remote"
+            data-video-user={userRole}
             style={{
               filter: filterPreset.cssFilter,
               position: isSegmenting ? "relative" : "absolute",
