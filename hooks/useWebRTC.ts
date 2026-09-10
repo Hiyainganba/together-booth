@@ -51,6 +51,29 @@ export function useWebRTC(
     [setRoom]
   );
 
+  const handlePeerHandshake = useCallback(
+    (remoteUid: string, remoteDisplayName: string) => {
+      const currentRoom = useRoomStore.getState().room;
+      if (currentRoom) {
+        setRoom({
+          ...currentRoom,
+          participants: {
+            ...currentRoom.participants,
+            [remoteUid]: {
+              uid: remoteUid,
+              displayName: remoteDisplayName,
+              isHost: false,
+              isAudioMuted: false,
+              isVideoMuted: false,
+              joinedAt: Date.now(),
+            },
+          },
+        });
+      }
+    },
+    [setRoom]
+  );
+
   useEffect(() => {
     if (!roomId || !localUid) return;
 
@@ -70,6 +93,9 @@ export function useWebRTC(
       },
       (syncedRoom) => {
         handleRoomSync(syncedRoom);
+      },
+      (remoteUid, remoteName) => {
+        handlePeerHandshake(remoteUid, remoteName);
       }
     );
 
@@ -79,7 +105,7 @@ export function useWebRTC(
       manager.destroy();
       managerRef.current = null;
     };
-  }, [roomId, localUid, displayName, isHost, addRemoteStream, removeRemoteStream, handleDataMessage, handleRoomSync]);
+  }, [roomId, localUid, displayName, isHost, addRemoteStream, removeRemoteStream, handleDataMessage, handleRoomSync, handlePeerHandshake]);
 
   useEffect(() => {
     if (managerRef.current && localStream) {

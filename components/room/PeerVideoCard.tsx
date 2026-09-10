@@ -46,7 +46,12 @@ export function PeerVideoCard({
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
-      videoRef.current.play().catch(() => {});
+      videoRef.current.play().catch(() => {
+        if (videoRef.current) {
+          videoRef.current.muted = true;
+          videoRef.current.play().catch(() => {});
+        }
+      });
     }
   }, [stream]);
 
@@ -83,7 +88,7 @@ export function PeerVideoCard({
   return (
     <div
       className={cn(
-        "relative w-full h-full min-h-[260px] rounded-3xl overflow-hidden bg-zinc-900 border border-white/10 shadow-2xl flex items-center justify-center group",
+        "relative w-full h-full min-h-[260px] rounded-3xl overflow-hidden bg-[#181614] border border-white/10 shadow-2xl flex items-center justify-center group",
         className
       )}
     >
@@ -116,11 +121,11 @@ export function PeerVideoCard({
           />
         </>
       ) : (
-        <div className="flex flex-col items-center justify-center text-zinc-500 gap-2">
-          <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400 animate-pulse">
-            <User className="w-7 h-7" />
+        <div className="flex flex-col items-center justify-center text-zinc-500 gap-3 p-6 text-center">
+          <div className="w-16 h-16 rounded-full bg-zinc-800/80 border border-white/10 flex items-center justify-center text-zinc-400 animate-pulse">
+            <User className="w-8 h-8" />
           </div>
-          <span className="text-xs font-semibold">Connecting stream...</span>
+          <span className="text-xs font-semibold text-zinc-400 font-sans">Connecting live video...</span>
         </div>
       )}
 
@@ -131,23 +136,23 @@ export function PeerVideoCard({
         />
       )}
 
-      <div className="absolute top-3 left-3 flex items-center gap-2">
-        <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-xs font-bold text-white border border-white/10 flex items-center gap-1.5 shadow-md">
-          <span className="w-2 h-2 rounded-full bg-emerald-400" />
-          {displayName}
+      <div className="absolute top-4 left-4 flex items-center gap-2 z-20">
+        <span className="px-3.5 py-1.5 rounded-full bg-black/70 backdrop-blur-md text-xs font-bold text-white border border-white/15 flex items-center gap-2 shadow-xl">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50 animate-pulse" />
+          <span className="tracking-wide">{displayName}</span>
         </span>
         {isSegmenting && (
-          <span className="px-2 py-0.5 rounded-full bg-pink-500/20 backdrop-blur-md text-[10px] font-bold text-pink-300 border border-pink-500/30 flex items-center gap-1">
-            <Sparkles className="w-3 h-3" />
+          <span className="px-2.5 py-1 rounded-full bg-pink-500/20 backdrop-blur-md text-[11px] font-bold text-pink-300 border border-pink-500/30 flex items-center gap-1">
+            <Sparkles className="w-3.5 h-3.5" />
             {bgPreset.name}
           </span>
         )}
       </div>
 
-      <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
+      <div className="absolute bottom-4 left-4 flex items-center gap-2 z-20">
         <div
           className={cn(
-            "p-2 rounded-full backdrop-blur-md border text-xs shadow-md",
+            "p-2 rounded-full backdrop-blur-md border text-xs shadow-md transition-all",
             !isAudioMuted
               ? "bg-black/60 text-white border-white/10"
               : "bg-red-500/80 text-white border-red-400"

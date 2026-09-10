@@ -85,7 +85,7 @@ export function LocalVideoCard({
   return (
     <div
       className={cn(
-        "relative w-full h-full min-h-[260px] rounded-3xl overflow-hidden bg-zinc-900 border border-white/10 shadow-2xl flex items-center justify-center group",
+        "relative w-full h-full min-h-[260px] rounded-3xl overflow-hidden bg-[#181614] border border-white/10 shadow-2xl flex items-center justify-center group",
         className
       )}
     >
@@ -122,11 +122,11 @@ export function LocalVideoCard({
           />
         </>
       ) : (
-        <div className="flex flex-col items-center justify-center text-zinc-500 gap-2">
-          <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400">
-            <VideoOff className="w-7 h-7" />
+        <div className="flex flex-col items-center justify-center text-zinc-500 gap-3 p-6 text-center">
+          <div className="w-16 h-16 rounded-full bg-zinc-800/80 border border-white/10 flex items-center justify-center text-zinc-400">
+            <VideoOff className="w-8 h-8" />
           </div>
-          <span className="text-xs font-semibold">Camera is turned off</span>
+          <span className="text-xs font-semibold text-zinc-400 font-sans">Camera is turned off</span>
         </div>
       )}
 
@@ -137,24 +137,24 @@ export function LocalVideoCard({
         />
       )}
 
-      <div className="absolute top-3 left-3 flex items-center gap-2">
-        <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-xs font-bold text-white border border-white/10 flex items-center gap-1.5 shadow-md">
-          <span className="w-2 h-2 rounded-full bg-pink-500 animate-pulse" />
-          {displayName} (You)
+      <div className="absolute top-4 left-4 flex items-center gap-2 z-20">
+        <span className="px-3.5 py-1.5 rounded-full bg-black/70 backdrop-blur-md text-xs font-bold text-white border border-white/15 flex items-center gap-2 shadow-xl">
+          <span className="w-2.5 h-2.5 rounded-full bg-[#FF6F61] shadow-sm shadow-[#FF6F61]/50 animate-pulse" />
+          <span className="tracking-wide">{displayName} (You)</span>
         </span>
         {isSegmenting && (
-          <span className="px-2 py-0.5 rounded-full bg-pink-500/20 backdrop-blur-md text-[10px] font-bold text-pink-300 border border-pink-500/30 flex items-center gap-1">
-            <Sparkles className="w-3 h-3" />
+          <span className="px-2.5 py-1 rounded-full bg-pink-500/20 backdrop-blur-md text-[11px] font-bold text-pink-300 border border-pink-500/30 flex items-center gap-1">
+            <Sparkles className="w-3.5 h-3.5" />
             {bgPreset.name}
           </span>
         )}
       </div>
 
-      <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
+      <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between z-20">
         <div className="flex items-center gap-1.5">
           <div
             className={cn(
-              "p-2 rounded-full backdrop-blur-md border text-xs shadow-md",
+              "p-2 rounded-full backdrop-blur-md border text-xs shadow-md transition-all",
               isMicActive
                 ? "bg-black/60 text-white border-white/10"
                 : "bg-red-500/80 text-white border-red-400"
@@ -165,7 +165,7 @@ export function LocalVideoCard({
         </div>
 
         {filter !== "normal" && (
-          <span className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-bold text-pink-300 border border-pink-500/30">
+          <span className="px-3 py-1 rounded-full bg-black/70 backdrop-blur-md text-[11px] font-bold text-[#FF6F61] border border-[#FF6F61]/30 shadow-md">
             {filterPreset.name}
           </span>
         )}

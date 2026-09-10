@@ -38,6 +38,7 @@ export class PeerJSManager {
   private onRemoteStreamRemoved?: (uid: string) => void;
   private onMessage?: (senderId: string, data: PeerMessagePayload) => void;
   private onRoomSync?: (room: Room) => void;
+  private onPeerHandshake?: (uid: string, displayName: string, peerId: string) => void;
 
   constructor(
     roomId: string,
@@ -47,7 +48,8 @@ export class PeerJSManager {
     onRemoteStream?: (uid: string, stream: MediaStream, displayName?: string) => void,
     onRemoteStreamRemoved?: (uid: string) => void,
     onMessage?: (senderId: string, data: PeerMessagePayload) => void,
-    onRoomSync?: (room: Room) => void
+    onRoomSync?: (room: Room) => void,
+    onPeerHandshake?: (uid: string, displayName: string, peerId: string) => void
   ) {
     this.cleanRoomId = roomId.trim().toUpperCase().replace(/[^A-Z0-9]/g, "") || "DEFAULT";
     this.localUid = localUid;
@@ -65,6 +67,7 @@ export class PeerJSManager {
     this.onRemoteStreamRemoved = onRemoteStreamRemoved;
     this.onMessage = onMessage;
     this.onRoomSync = onRoomSync;
+    this.onPeerHandshake = onPeerHandshake;
 
     this.initPeer();
   }
@@ -97,7 +100,7 @@ export class PeerJSManager {
 
         call.on("stream", (remoteStream) => {
           const mappedUid = this.peerIdToUid.get(callerPeerId) || callerPeerId;
-          const mappedName = this.peerIdToName.get(callerPeerId);
+          const mappedName = this.peerIdToName.get(callerPeerId) || "Partner 🧸";
           this.onRemoteStream?.(mappedUid, remoteStream, mappedName);
           if (mappedUid !== callerPeerId) {
             this.onRemoteStream?.(callerPeerId, remoteStream, mappedName);
@@ -125,7 +128,7 @@ export class PeerJSManager {
 
       this.peer.on("error", (err: unknown) => {
         const errType = (err as { type?: string })?.type;
-        if (errType === "unavailable-id" && this.isHost) {
+        if (errType === "unavailable-id") {
           this.isHost = false;
           const safeUid = this.localUid.replace(/[^a-zA-Z0-9]/g, "").slice(-4) || "0000";
           this.localPeerId = `tb_${this.cleanRoomId}_g_${safeUid}_${Math.floor(100 + Math.random() * 900)}`;
@@ -139,7 +142,7 @@ export class PeerJSManager {
     if (this.retryTimer) clearInterval(this.retryTimer);
     let attempts = 0;
     this.retryTimer = setInterval(() => {
-      if (this.isDestroyed || this.activeConnections.size > 0 || attempts > 20) {
+      if (this.isDestroyed || this.activeConnections.size > 0 || attempts > 25) {
         if (this.retryTimer) clearInterval(this.retryTimer);
         this.retryTimer = null;
         return;
@@ -175,7 +178,7 @@ export class PeerJSManager {
 
         call.on("stream", (remoteStream) => {
           const mappedUid = this.peerIdToUid.get(targetPeerId) || targetPeerId;
-          const mappedName = this.peerIdToName.get(targetPeerId);
+          const mappedName = this.peerIdToName.get(targetPeerId) || "Partner 🧸";
           this.onRemoteStream?.(mappedUid, remoteStream, mappedName);
           if (mappedUid !== targetPeerId) {
             this.onRemoteStream?.(targetPeerId, remoteStream, mappedName);
@@ -202,7 +205,7 @@ export class PeerJSManager {
 
     conn.on("open", () => {
       conn.send({
-        type: "join_handshake",
+        type: "peer_handshake",
         senderId: this.localUid,
         displayName: this.displayName,
         peerId: this.localPeerId,
@@ -217,12 +220,20 @@ export class PeerJSManager {
       if (typeof rawData === "object" && rawData !== null) {
         const data = rawData as PeerMessagePayload;
 
-        if (data.type === "join_handshake" && data.senderId) {
+        if (data.type === "peer_handshake" && data.senderId) {
+          const senderDisplayName = data.displayName || "Partner 🧸";
           this.peerIdToUid.set(remoteId, data.senderId);
           this.uidToPeerId.set(data.senderId, remoteId);
-          if (data.displayName) {
-            this.peerIdToName.set(remoteId, data.displayName);
-          }
+          this.peerIdToName.set(remoteId, senderDisplayName);
+
+          this.onPeerHandshake?.(data.senderId, senderDisplayName, remoteId);
+
+          conn.send({
+            type: "peer_handshake_ack",
+            senderId: this.localUid,
+            displayName: this.displayName,
+            peerId: this.localPeerId,
+          });
 
           if (this.localStream) {
             this.callPeer(remoteId);
@@ -234,6 +245,16 @@ export class PeerJSManager {
               type: "peer_list_sync",
               peers: currentConnectedPeers,
             });
+          }
+        } else if (data.type === "peer_handshake_ack" && data.senderId) {
+          const senderDisplayName = data.displayName || "Partner 🧸";
+          this.peerIdToUid.set(remoteId, data.senderId);
+          this.uidToPeerId.set(data.senderId, remoteId);
+          this.peerIdToName.set(remoteId, senderDisplayName);
+          this.onPeerHandshake?.(data.senderId, senderDisplayName, remoteId);
+
+          if (this.localStream) {
+            this.callPeer(remoteId);
           }
         } else if (data.type === "stream_ready" && data.peerId) {
           if (this.localStream) {
@@ -307,16 +328,12 @@ export class PeerJSManager {
     }
 
     for (const remotePeerId of this.activeConnections.keys()) {
-      if (!this.activeCalls.has(remotePeerId)) {
-        this.callPeer(remotePeerId);
-      }
+      this.callPeer(remotePeerId);
     }
 
     if (!this.isHost) {
       const hostPeerId = `tb_${this.cleanRoomId}_host`;
-      if (!this.activeCalls.has(hostPeerId)) {
-        this.callPeer(hostPeerId);
-      }
+      this.callPeer(hostPeerId);
     }
 
     this.broadcast({
