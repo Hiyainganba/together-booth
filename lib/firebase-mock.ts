@@ -38,25 +38,34 @@ export class LocalMemoryDatabase {
     if (typeof window === "undefined") return;
     const users = this.getRegisteredUsers();
     users[user.uid] = { ...users[user.uid], ...user };
-    if (user.email) {
-      users[user.email.toLowerCase()] = { ...users[user.uid], ...user };
-    }
-    if (user.phoneNumber) {
-      users[user.phoneNumber] = { ...users[user.uid], ...user };
-    }
     localStorage.setItem(STORAGE_KEYS.USERS_DB, JSON.stringify(users));
   }
 
-  static getUserByEmailOrPhone(identifier: string): (UserProfile & { password?: string }) | null {
+  static getUserByEmail(email: string): (UserProfile & { password?: string }) | null {
     const users = this.getRegisteredUsers();
-    const clean = identifier.trim().toLowerCase();
-    if (users[clean]) return users[clean];
-    const found = Object.values(users).find(
-      (u) =>
-        (u.email && u.email.toLowerCase() === clean) ||
-        (u.phoneNumber && u.phoneNumber.replace(/\s+/g, "") === clean.replace(/\s+/g, ""))
-    );
+    const clean = email.trim().toLowerCase();
+    const list = Object.values(users);
+    const found = list.find((u) => u.email && u.email.trim().toLowerCase() === clean);
     return found || null;
+  }
+
+  static getUserByPhone(phone: string): (UserProfile & { password?: string }) | null {
+    const users = this.getRegisteredUsers();
+    const cleanDigits = phone.replace(/[^\d+]/g, "");
+    const list = Object.values(users);
+    const found = list.find((u) => {
+      if (!u.phoneNumber) return false;
+      const uDigits = u.phoneNumber.replace(/[^\d+]/g, "");
+      return uDigits === cleanDigits || uDigits.slice(-10) === cleanDigits.slice(-10);
+    });
+    return found || null;
+  }
+
+  static getUserByEmailOrPhone(identifier: string): (UserProfile & { password?: string }) | null {
+    const clean = identifier.trim().toLowerCase();
+    const byEmail = this.getUserByEmail(clean);
+    if (byEmail) return byEmail;
+    return this.getUserByPhone(identifier);
   }
 
   static resetUserPassword(emailOrPhone: string, newPass: string): boolean {
@@ -67,13 +76,12 @@ export class LocalMemoryDatabase {
 
     user.password = newPass;
     users[user.uid] = user;
-    if (user.email) {
-      users[user.email.toLowerCase()] = user;
-    }
-    if (user.phoneNumber) {
-      users[user.phoneNumber] = user;
-    }
     localStorage.setItem(STORAGE_KEYS.USERS_DB, JSON.stringify(users));
+
+    const current = this.getUser();
+    if (current && current.uid === user.uid) {
+      this.setUser(user);
+    }
     return true;
   }
 

@@ -51,6 +51,7 @@ export default function ProfilePage() {
 
   const [editName, setEditName] = useState("");
   const [editBio, setEditBio] = useState("");
+  const [editPhone, setEditPhone] = useState("");
   const [editAvatar, setEditAvatar] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState(false);
@@ -62,11 +63,18 @@ export default function ProfilePage() {
     if (user) {
       setEditName(user.displayName || "");
       setEditBio(user.bio || "Photobooth explorer & memory maker ✨");
+      setEditPhone(user.phoneNumber || "");
       setEditAvatar(user.photoURL || AVATAR_PRESETS[0]);
     }
   }, [user]);
 
-  const userMemories = memories.filter((m) => !user || m.userId === user.uid || m.userId === "guest");
+  const userMemories = memories.filter((m) => {
+    if (!user) return false;
+    if (user.isAnonymous) {
+      return m.userId === user.uid || m.userId === "guest";
+    }
+    return m.userId === user.uid;
+  });
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,6 +83,7 @@ export default function ProfilePage() {
       await updateProfile({
         displayName: editName.trim() || "Together Star",
         bio: editBio.trim(),
+        phoneNumber: editPhone.trim() || null,
         photoURL: editAvatar,
       });
       setProfileSuccess(true);
@@ -152,7 +161,7 @@ export default function ProfilePage() {
                       {user?.bio || "Photobooth explorer & memory maker ✨"}
                     </p>
 
-                    <div className="flex items-center justify-center sm:justify-start gap-4 text-xs text-zinc-500 pt-1 font-mono">
+                    <div className="flex items-center justify-center sm:justify-start gap-4 text-xs text-zinc-500 pt-1 font-mono flex-wrap">
                       {user?.email && (
                         <span className="flex items-center gap-1">
                           <Mail className="w-3.5 h-3.5 text-zinc-400" />
@@ -344,7 +353,7 @@ export default function ProfilePage() {
                 <div>
                   <h3 className="font-serif text-lg font-bold text-white">Profile Details & Settings</h3>
                   <p className="text-xs text-zinc-400 mt-0.5">
-                    Customize how your name and avatar appear in rooms and memories.
+                    Customize how your name, phone, and avatar appear in rooms and memories.
                   </p>
                 </div>
 
@@ -368,6 +377,19 @@ export default function ProfilePage() {
                       maxLength={30}
                       required
                       className="w-full px-4 py-2.5 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
+                      Mobile Phone Number
+                    </label>
+                    <input
+                      type="tel"
+                      value={editPhone}
+                      onChange={(e) => setEditPhone(e.target.value)}
+                      placeholder="+1 (555) 234-5678"
+                      className="w-full px-4 py-2.5 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all font-mono"
                     />
                   </div>
 

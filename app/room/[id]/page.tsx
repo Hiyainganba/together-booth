@@ -210,7 +210,7 @@ export default function RoomPage() {
               className="w-full"
             >
               <LogIn className="w-4 h-4 mr-2" />
-              <span>Or Sign in with Google</span>
+              <span>Or Sign In / Register Account</span>
             </Button>
           </div>
         </div>

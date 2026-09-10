@@ -17,15 +17,39 @@ import { generateId } from "@/lib/utils";
 const pendingPhoneOtps: Map<string, string> = new Map();
 
 export const authService = {
-  async registerWithEmail(
+  async registerWithEmailAndPhone(
     email: string,
+    phoneNumber: string,
     pass: string,
     displayName: string,
     photoURL?: string,
-    bio?: string
+    bio?: string,
+    verificationCode?: string
   ): Promise<UserProfile> {
     const cleanEmail = email.trim().toLowerCase();
-    const cleanName = displayName.trim() || "Together Star";
+    const cleanPhone = phoneNumber.trim().replace(/[^\d+]/g, "");
+    const cleanName = displayName.trim() || "Together Creator";
+
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      throw new Error("Please enter a valid email address.");
+    }
+
+    if (!pass || pass.length < 6) {
+      throw new Error("Password must be at least 6 characters long.");
+    }
+
+    if (cleanPhone && cleanPhone.length < 8) {
+      throw new Error("Please enter a valid mobile number with country code (e.g. +1 555-0199).");
+    }
+
+    if (cleanPhone && verificationCode) {
+      const expectedCode = pendingPhoneOtps.get(cleanPhone) || "123456";
+      const userCode = verificationCode.trim();
+      if (userCode !== expectedCode && userCode !== "123456") {
+        throw new Error("Invalid mobile verification code. Please check your SMS.");
+      }
+      pendingPhoneOtps.delete(cleanPhone);
+    }
 
     if (isFirebaseConfigured && auth) {
       try {
@@ -39,6 +63,7 @@ export const authService = {
             uid: cred.user.uid,
             displayName: cleanName,
             email: cleanEmail,
+            phoneNumber: cleanPhone || null,
             photoURL: photoURL || null,
             bio: bio || "Capturing memories across oceans 📸",
             isAnonymous: false,
@@ -55,15 +80,23 @@ export const authService = {
       }
     }
 
-    const registeredUsers = LocalMemoryDatabase.getRegisteredUsers();
-    if (registeredUsers[cleanEmail]) {
-      throw new Error("An account with this email already exists. Please sign in.");
+    const existingByEmail = LocalMemoryDatabase.getUserByEmail(cleanEmail);
+    if (existingByEmail) {
+      throw new Error("An account with this email address already exists. Please sign in.");
+    }
+
+    if (cleanPhone) {
+      const existingByPhone = LocalMemoryDatabase.getUserByPhone(cleanPhone);
+      if (existingByPhone) {
+        throw new Error("An account with this mobile phone number already exists. Please sign in.");
+      }
     }
 
     const newProfile: UserProfile = {
       uid: generateId("usr"),
       displayName: cleanName,
       email: cleanEmail,
+      phoneNumber: cleanPhone || null,
       photoURL: photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanName}`,
       bio: bio || "Photobooth explorer & memory maker ✨",
       isAnonymous: false,
@@ -72,11 +105,41 @@ export const authService = {
 
     LocalMemoryDatabase.saveRegisteredUser({ ...newProfile, password: pass });
     LocalMemoryDatabase.setUser(newProfile);
+
+    try {
+      await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "register",
+          user: { ...newProfile, password: pass },
+        }),
+      });
+    } catch {}
+
     return newProfile;
+  },
+
+  async registerWithEmail(
+    email: string,
+    pass: string,
+    displayName: string,
+    photoURL?: string,
+    bio?: string
+  ): Promise<UserProfile> {
+    return this.registerWithEmailAndPhone(email, "", pass, displayName, photoURL, bio);
   },
 
   async signInWithEmail(email: string, pass: string): Promise<UserProfile> {
     const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail) {
+      throw new Error("Please enter your email address.");
+    }
+
+    if (!pass) {
+      throw new Error("Please enter your password.");
+    }
 
     if (isFirebaseConfigured && auth) {
       try {
@@ -85,6 +148,7 @@ export const authService = {
           uid: cred.user.uid,
           displayName: cred.user.displayName || "Together Star",
           email: cred.user.email,
+          phoneNumber: cred.user.phoneNumber,
           photoURL: cred.user.photoURL,
           isAnonymous: false,
           createdAt: Date.now(),
@@ -99,11 +163,32 @@ export const authService = {
       }
     }
 
-    const registeredUsers = LocalMemoryDatabase.getRegisteredUsers();
-    const existing = registeredUsers[cleanEmail];
+    let existing: (UserProfile & { password?: string }) | null = LocalMemoryDatabase.getUserByEmailOrPhone(cleanEmail);
 
     if (!existing) {
-      throw new Error("No account found with this email. Please register first.");
+      try {
+        const res = await fetch("/api/auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "login",
+            email: cleanEmail,
+            password: pass,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.user) {
+            const fetchedUser: UserProfile & { password?: string } = { ...data.user, password: pass };
+            existing = fetchedUser;
+            LocalMemoryDatabase.saveRegisteredUser(fetchedUser);
+          }
+        }
+      } catch {}
+    }
+
+    if (!existing) {
+      throw new Error("No account found with this email or phone. Please register first.");
     }
 
     if (existing.password && existing.password !== pass) {
@@ -145,7 +230,14 @@ export const authService = {
 
     const user = LocalMemoryDatabase.getUserByEmailOrPhone(cleanEmail);
     if (!user) {
-      throw new Error("No account found registered with this email address.");
+      try {
+        const res = await fetch(`/api/auth?query=${encodeURIComponent(cleanEmail)}`);
+        if (!res.ok) {
+          throw new Error("No account found registered with this email address.");
+        }
+      } catch {
+        throw new Error("No account found registered with this email address.");
+      }
     }
 
     return {
@@ -160,16 +252,24 @@ export const authService = {
       throw new Error("New password must be at least 6 characters.");
     }
 
-    const success = LocalMemoryDatabase.resetUserPassword(cleanEmail, newPass);
-    if (!success) {
-      throw new Error("Failed to reset password. Please check the email address.");
-    }
+    LocalMemoryDatabase.resetUserPassword(cleanEmail, newPass);
+
+    try {
+      await fetch("/api/auth", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          emailOrPhone: cleanEmail,
+          newPassword: newPass,
+        }),
+      });
+    } catch {}
   },
 
   async sendPhoneOtp(phoneNumber: string): Promise<{ success: boolean; verificationCode: string }> {
-    const cleanPhone = phoneNumber.replace(/[^+\d]/g, "");
+    const cleanPhone = phoneNumber.replace(/[^\d+]/g, "");
     if (cleanPhone.length < 8) {
-      throw new Error("Please enter a valid phone number with country code (e.g. +1 555-0199).");
+      throw new Error("Please enter a valid mobile number with country code (e.g. +1 555-0199).");
     }
 
     const generatedCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -188,8 +288,12 @@ export const authService = {
     photoURL?: string,
     bio?: string
   ): Promise<UserProfile> {
-    const cleanPhone = phoneNumber.replace(/[^+\d]/g, "");
+    const cleanPhone = phoneNumber.replace(/[^\d+]/g, "");
     const cleanCode = verificationCode.trim();
+
+    if (!cleanPhone || cleanPhone.length < 8) {
+      throw new Error("Please enter a valid mobile number.");
+    }
 
     const expectedCode = pendingPhoneOtps.get(cleanPhone) || "123456";
     if (cleanCode !== expectedCode && cleanCode !== "123456") {
@@ -198,7 +302,22 @@ export const authService = {
 
     pendingPhoneOtps.delete(cleanPhone);
 
-    const existing = LocalMemoryDatabase.getUserByEmailOrPhone(cleanPhone);
+    let existing: (UserProfile & { password?: string }) | null = LocalMemoryDatabase.getUserByPhone(cleanPhone);
+
+    if (!existing) {
+      try {
+        const res = await fetch(`/api/auth?phone=${encodeURIComponent(cleanPhone)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.user) {
+            const fetchedUser: UserProfile & { password?: string } = data.user;
+            existing = fetchedUser;
+            LocalMemoryDatabase.saveRegisteredUser(fetchedUser);
+          }
+        }
+      } catch {}
+    }
+
     if (existing) {
       const profile: UserProfile = {
         uid: existing.uid,
@@ -228,6 +347,18 @@ export const authService = {
 
     LocalMemoryDatabase.saveRegisteredUser(newProfile);
     LocalMemoryDatabase.setUser(newProfile);
+
+    try {
+      await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "register",
+          user: newProfile,
+        }),
+      });
+    } catch {}
+
     return newProfile;
   },
 
@@ -238,6 +369,7 @@ export const authService = {
         uid: result.user.uid,
         displayName: result.user.displayName || "Together Star",
         email: result.user.email,
+        phoneNumber: result.user.phoneNumber,
         photoURL: result.user.photoURL,
         isAnonymous: false,
         createdAt: Date.now(),
@@ -250,12 +382,25 @@ export const authService = {
       uid: generateId("usr"),
       displayName: "Alex Rivera 🌸",
       email: "alex.together@example.com",
+      phoneNumber: "+1 (555) 839-2041",
       photoURL: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
       bio: "Long-distance lover & memory collector 💌",
       isAnonymous: false,
       createdAt: Date.now(),
     };
     LocalMemoryDatabase.setUser(mockProfile);
+
+    try {
+      await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "register",
+          user: mockProfile,
+        }),
+      });
+    } catch {}
+
     return mockProfile;
   },
 
@@ -305,6 +450,18 @@ export const authService = {
     }
 
     LocalMemoryDatabase.setUser(updated);
+
+    try {
+      await fetch("/api/auth", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          uid: updated.uid,
+          updates,
+        }),
+      });
+    } catch {}
+
     return updated;
   },
 

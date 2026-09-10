@@ -20,6 +20,8 @@ import {
   ArrowLeft,
   ShieldCheck,
   Send,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -36,7 +38,7 @@ export function AuthModal() {
   const {
     isAuthModalOpen,
     closeAuthModal,
-    registerWithEmail,
+    registerWithEmailAndPhone,
     signInWithEmail,
     sendPasswordReset,
     resetPassword,
@@ -47,11 +49,18 @@ export function AuthModal() {
   } = useAuth();
 
   const [authTab, setAuthTab] = useState<"signin" | "register" | "phone" | "forgot" | "guest">("signin");
+  
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [selectedAvatar, setSelectedAvatar] = useState(AVATAR_PRESETS[0]);
   const [guestName, setGuestName] = useState("");
+
+  const [regPhone, setRegPhone] = useState("");
+  const [regOtp, setRegOtp] = useState("");
+  const [regOtpSent, setRegOtpSent] = useState(false);
+  const [regOtpHint, setRegOtpHint] = useState<string | null>(null);
 
   const [phoneNumber, setPhoneNumber] = useState("");
   const [phoneOtp, setPhoneOtp] = useState("");
@@ -71,6 +80,8 @@ export function AuthModal() {
     setError(null);
     setPhoneOtpSent(false);
     setDemoOtpHint(null);
+    setRegOtpSent(false);
+    setRegOtpHint(null);
     setForgotStep("email");
     setResetSuccessMessage(null);
   };
@@ -80,30 +91,87 @@ export function AuthModal() {
     resetFormState();
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSendRegPhoneCode = async () => {
+    if (!regPhone.trim()) {
+      setError("Please enter your mobile phone number with country code first.");
+      return;
+    }
+    setError(null);
+    setIsLoading(true);
+    try {
+      const res = await sendPhoneOtp(regPhone);
+      setRegOtpSent(true);
+      setRegOtpHint(res.verificationCode);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to send SMS code");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setIsLoading(true);
 
     try {
-      if (authTab === "register") {
-        if (!email.trim() || !password || !displayName.trim()) {
-          throw new Error("Please fill in your name, email, and password.");
-        }
-        if (password.length < 6) {
-          throw new Error("Password must be at least 6 characters.");
-        }
-        await registerWithEmail(email, password, displayName, selectedAvatar);
-      } else if (authTab === "signin") {
-        if (!email.trim() || !password) {
-          throw new Error("Please enter your email and password.");
-        }
-        await signInWithEmail(email, password);
-      } else if (authTab === "guest") {
-        await signInAsGuest(guestName.trim() || "Guest Creator");
+      if (!displayName.trim()) {
+        throw new Error("Please enter your display name.");
       }
+      if (!email.trim() || !email.includes("@")) {
+        throw new Error("Please enter a valid email address.");
+      }
+      if (!regPhone.trim()) {
+        throw new Error("Please enter your mobile phone number.");
+      }
+      if (regOtpSent && !regOtp.trim()) {
+        throw new Error("Please enter the 6-digit mobile verification code sent to your phone.");
+      }
+      if (!password || password.length < 6) {
+        throw new Error("Password must be at least 6 characters long.");
+      }
+
+      await registerWithEmailAndPhone(
+        email,
+        regPhone,
+        password,
+        displayName,
+        selectedAvatar,
+        "Photobooth explorer & memory maker ✨",
+        regOtp.trim() || undefined
+      );
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Authentication failed");
+      setError(err instanceof Error ? err.message : "Registration failed");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSignInSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      if (!email.trim() || !password) {
+        throw new Error("Please enter your registered email/phone and password.");
+      }
+      await signInWithEmail(email, password);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Sign in failed");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGuestSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setIsLoading(true);
+    try {
+      await signInAsGuest(guestName.trim() || "Guest Creator");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Guest sign in failed");
     } finally {
       setIsLoading(false);
     }
@@ -218,34 +286,34 @@ export function AuthModal() {
       onClose={closeAuthModal}
       title={
         authTab === "register"
-          ? "Create Your Member Profile"
+          ? "Create Verified Member Profile"
           : authTab === "signin"
           ? "Welcome Back to Together Booth"
           : authTab === "phone"
-          ? "Phone & SMS Authentication"
+          ? "Phone & SMS OTP Authentication"
           : authTab === "forgot"
           ? "Reset Your Password"
           : "Quick Guest Mode"
       }
       description={
         authTab === "register"
-          ? "Register with email, Google, or phone to save all your photostrips online."
+          ? "Strict registration with email, mobile phone code, and memory vault."
           : authTab === "forgot"
-          ? "Enter your email to verify your account and set a new password."
+          ? "Verify your account and set a fresh new password."
           : authTab === "phone"
-          ? "Sign in or create an account with instant mobile SMS code."
-          : "Sign in to access your online memory vault and join live photobooths."
+          ? "Sign in or register instantly using 6-digit SMS verification code."
+          : "Sign in to access your personal memory vault and launch photobooths."
       }
       maxWidth="md"
     >
-      <div className="space-y-5">
+      <div className="space-y-4">
         {authTab !== "forgot" && (
           <div className="flex items-center gap-1 p-1 rounded-2xl bg-[#1A1816] border border-white/10 overflow-x-auto no-scrollbar">
             <button
               type="button"
               onClick={() => handleSwitchTab("signin")}
               className={cn(
-                "flex-1 py-2 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap",
+                "flex-1 py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap",
                 authTab === "signin"
                   ? "bg-[#FF6F61] text-white shadow-md shadow-[#FF6F61]/25"
                   : "text-zinc-400 hover:text-white"
@@ -259,7 +327,7 @@ export function AuthModal() {
               type="button"
               onClick={() => handleSwitchTab("register")}
               className={cn(
-                "flex-1 py-2 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap",
+                "flex-1 py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap",
                 authTab === "register"
                   ? "bg-[#FF6F61] text-white shadow-md shadow-[#FF6F61]/25"
                   : "text-zinc-400 hover:text-white"
@@ -273,21 +341,21 @@ export function AuthModal() {
               type="button"
               onClick={() => handleSwitchTab("phone")}
               className={cn(
-                "flex-1 py-2 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap",
+                "flex-1 py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap",
                 authTab === "phone"
                   ? "bg-[#FF6F61] text-white shadow-md shadow-[#FF6F61]/25"
                   : "text-zinc-400 hover:text-white"
               )}
             >
               <Phone className="w-3.5 h-3.5" />
-              <span>Phone</span>
+              <span>Mobile OTP</span>
             </button>
 
             <button
               type="button"
               onClick={() => handleSwitchTab("guest")}
               className={cn(
-                "flex-1 py-2 px-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap",
+                "flex-1 py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap",
                 authTab === "guest"
                   ? "bg-[#FF6F61] text-white shadow-md shadow-[#FF6F61]/25"
                   : "text-zinc-400 hover:text-white"
@@ -300,19 +368,19 @@ export function AuthModal() {
         )}
 
         {error && (
-          <div className="p-3.5 rounded-2xl bg-red-500/15 border border-red-500/30 text-red-400 text-xs">
+          <div className="p-3 rounded-2xl bg-red-500/15 border border-red-500/30 text-red-400 text-xs font-medium">
             {error}
           </div>
         )}
 
         {resetSuccessMessage && (
-          <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2">
+          <div className="p-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2">
             <Check className="w-4 h-4 shrink-0 text-emerald-400" />
             <span>{resetSuccessMessage}</span>
           </div>
         )}
 
-        {authTab !== "forgot" && authTab !== "phone" && (
+        {authTab !== "forgot" && authTab !== "phone" && authTab !== "register" && (
           <Button
             variant="glass"
             size="lg"
@@ -342,132 +410,224 @@ export function AuthModal() {
           </Button>
         )}
 
-        {authTab !== "forgot" && authTab !== "phone" && (
-          <div className="relative flex items-center justify-center my-2">
+        {authTab !== "forgot" && authTab !== "phone" && authTab !== "register" && (
+          <div className="relative flex items-center justify-center my-1">
             <div className="border-t border-white/10 w-full" />
             <span className="bg-[#1A1816] px-3 text-[10px] uppercase tracking-wider text-zinc-500 font-bold absolute">
-              {authTab === "register" ? "Or register with details" : authTab === "signin" ? "Or sign in with email" : "Guest info"}
+              {authTab === "signin" ? "Or sign in with email/phone" : "Guest info"}
             </span>
           </div>
         )}
 
-        {(authTab === "signin" || authTab === "register" || authTab === "guest") && (
-          <form onSubmit={handleSubmit} className="space-y-3.5">
-            {authTab === "register" && (
-              <>
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
-                    Display Name
-                  </label>
-                  <div className="relative">
-                    <User className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3" />
-                    <input
-                      type="text"
-                      value={displayName}
-                      onChange={(e) => setDisplayName(e.target.value)}
-                      placeholder="e.g. Maya Lin 🌸"
-                      maxLength={24}
-                      required
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all"
-                    />
-                  </div>
-                </div>
+        {authTab === "register" && (
+          <form onSubmit={handleRegisterSubmit} className="space-y-3 max-h-[62vh] overflow-y-auto pr-1 no-scrollbar">
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1">
+                Display Name / Full Name
+              </label>
+              <div className="relative">
+                <User className="w-4 h-4 text-zinc-500 absolute left-3.5 top-2.5" />
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="e.g. Maya Lin 🌸"
+                  maxLength={28}
+                  required
+                  className="w-full pl-10 pr-4 py-2 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all"
+                />
+              </div>
+            </div>
 
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
-                    Choose Profile Avatar
-                  </label>
-                  <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-                    {AVATAR_PRESETS.map((avatar, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => setSelectedAvatar(avatar)}
-                        className={cn(
-                          "w-10 h-10 rounded-xl overflow-hidden border-2 transition-all p-0.5 cursor-pointer bg-zinc-800 shrink-0",
-                          selectedAvatar === avatar
-                            ? "border-[#FF6F61] scale-110 shadow-md shadow-[#FF6F61]/30"
-                            : "border-transparent opacity-70 hover:opacity-100"
-                        )}
-                      >
-                        <img src={avatar} alt="Avatar" className="w-full h-full object-cover rounded-lg" />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1">
+                Email Address
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-zinc-500 absolute left-3.5 top-2.5" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  required
+                  className="w-full pl-10 pr-4 py-2 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all"
+                />
+              </div>
+            </div>
 
-            {authTab !== "guest" && (
-              <>
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
-                    Email Address
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3" />
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      required
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400">
-                      Password
-                    </label>
-                    {authTab === "signin" && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setForgotEmail(email);
-                          handleSwitchTab("forgot");
-                        }}
-                        className="text-[11px] font-semibold text-[#FF7E67] hover:text-[#FFA28B] transition-colors cursor-pointer"
-                      >
-                        Forgot password?
-                      </button>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3" />
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      required
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all"
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-
-            {authTab === "guest" && (
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
-                  Your Nickname
-                </label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3" />
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1">
+                Mobile Phone Number (SMS Code)
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Phone className="w-4 h-4 text-zinc-500 absolute left-3.5 top-2.5" />
                   <input
-                    type="text"
-                    value={guestName}
-                    onChange={(e) => setGuestName(e.target.value)}
-                    placeholder="e.g. Jordan 🧸"
-                    maxLength={20}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all"
+                    type="tel"
+                    value={regPhone}
+                    onChange={(e) => setRegPhone(e.target.value)}
+                    placeholder="+1 555-0199 or +91 9876543210"
+                    required
+                    className="w-full pl-10 pr-4 py-2 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all font-mono"
                   />
                 </div>
+                <button
+                  type="button"
+                  onClick={handleSendRegPhoneCode}
+                  disabled={isLoading}
+                  className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-[#FFA28B] text-xs font-bold whitespace-nowrap transition-colors cursor-pointer border border-white/10 shrink-0"
+                >
+                  {regOtpSent ? "Resend Code" : "Send SMS Code"}
+                </button>
               </div>
-            )}
+
+              {regOtpSent && (
+                <div className="mt-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] flex items-center justify-between">
+                  <span>SMS Code Sent!</span>
+                  {regOtpHint && (
+                    <span className="font-mono px-2 py-0.5 rounded bg-amber-500/20 font-bold">
+                      Code: {regOtpHint}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1">
+                6-Digit Mobile Verification Code
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-zinc-500 absolute left-3.5 top-2.5" />
+                <input
+                  type="text"
+                  value={regOtp}
+                  onChange={(e) => setRegOtp(e.target.value)}
+                  placeholder="123456"
+                  maxLength={6}
+                  className="w-full pl-10 pr-4 py-2 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all font-mono tracking-widest"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1">
+                Create Password
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-zinc-500 absolute left-3.5 top-2.5" />
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="•••••••• (min 6 characters)"
+                  required
+                  minLength={6}
+                  className="w-full pl-10 pr-10 py-2 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-2.5 text-zinc-500 hover:text-zinc-300 cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1">
+                Choose Profile Avatar
+              </label>
+              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+                {AVATAR_PRESETS.map((avatar, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setSelectedAvatar(avatar)}
+                    className={cn(
+                      "w-9 h-9 rounded-xl overflow-hidden border-2 transition-all p-0.5 cursor-pointer bg-zinc-800 shrink-0",
+                      selectedAvatar === avatar
+                        ? "border-[#FF6F61] scale-105 shadow-md shadow-[#FF6F61]/30"
+                        : "border-transparent opacity-70 hover:opacity-100"
+                    )}
+                  >
+                    <img src={avatar} alt="Avatar" className="w-full h-full object-cover rounded-lg" />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              className="w-full flex items-center justify-center gap-2 mt-3"
+              isLoading={isLoading}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>Register & Enter Vault</span>
+              <ArrowRight className="w-4 h-4 ml-1" />
+            </Button>
+          </form>
+        )}
+
+        {authTab === "signin" && (
+          <form onSubmit={handleSignInSubmit} className="space-y-3.5">
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
+                Email Address or Mobile Phone
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com or +1 555-0199"
+                  required
+                  autoFocus
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all"
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotEmail(email);
+                    handleSwitchTab("forgot");
+                  }}
+                  className="text-[11px] font-semibold text-[#FF7E67] hover:text-[#FFA28B] transition-colors cursor-pointer"
+                >
+                  Forgot password?
+                </button>
+              </div>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3" />
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-3 text-zinc-500 hover:text-zinc-300 cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
 
             <Button
               type="submit"
@@ -476,13 +636,39 @@ export function AuthModal() {
               className="w-full flex items-center justify-center gap-2 mt-2"
               isLoading={isLoading}
             >
-              <span>
-                {authTab === "register"
-                  ? "Create Account & Enter"
-                  : authTab === "signin"
-                  ? "Sign In"
-                  : "Enter as Guest"}
-              </span>
+              <span>Sign In to Account</span>
+              <ArrowRight className="w-4 h-4 ml-1" />
+            </Button>
+          </form>
+        )}
+
+        {authTab === "guest" && (
+          <form onSubmit={handleGuestSubmit} className="space-y-3.5">
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
+                Your Nickname
+              </label>
+              <div className="relative">
+                <User className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  value={guestName}
+                  onChange={(e) => setGuestName(e.target.value)}
+                  placeholder="e.g. Jordan 🧸"
+                  maxLength={20}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all"
+                />
+              </div>
+            </div>
+
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              className="w-full flex items-center justify-center gap-2 mt-2"
+              isLoading={isLoading}
+            >
+              <span>Enter as Guest</span>
               <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
           </form>
@@ -556,7 +742,7 @@ export function AuthModal() {
 
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
-                    Your Name
+                    Your Name (for new creators)
                   </label>
                   <div className="relative">
                     <User className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3" />
@@ -568,29 +754,6 @@ export function AuthModal() {
                       maxLength={24}
                       className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#141210] border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-[#FF6F61] text-xs transition-all"
                     />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
-                    Choose Profile Avatar
-                  </label>
-                  <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-                    {AVATAR_PRESETS.map((avatar, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => setSelectedAvatar(avatar)}
-                        className={cn(
-                          "w-10 h-10 rounded-xl overflow-hidden border-2 transition-all p-0.5 cursor-pointer bg-zinc-800 shrink-0",
-                          selectedAvatar === avatar
-                            ? "border-[#FF6F61] scale-110 shadow-md shadow-[#FF6F61]/30"
-                            : "border-transparent opacity-70 hover:opacity-100"
-                        )}
-                      >
-                        <img src={avatar} alt="Avatar" className="w-full h-full object-cover rounded-lg" />
-                      </button>
-                    ))}
                   </div>
                 </div>
 
@@ -637,12 +800,12 @@ export function AuthModal() {
               <form onSubmit={handleForgotRequest} className="space-y-4">
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
-                    Your Registered Email
+                    Your Registered Email or Phone
                   </label>
                   <div className="relative">
                     <Mail className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3" />
                     <input
-                      type="email"
+                      type="text"
                       value={forgotEmail}
                       onChange={(e) => setForgotEmail(e.target.value)}
                       placeholder="you@example.com"
@@ -664,7 +827,7 @@ export function AuthModal() {
                   isLoading={isLoading}
                 >
                   <KeyRound className="w-4 h-4" />
-                  <span>Verify Email & Continue</span>
+                  <span>Verify Account & Continue</span>
                   <ArrowRight className="w-4 h-4 ml-1" />
                 </Button>
               </form>
@@ -721,7 +884,7 @@ export function AuthModal() {
         )}
 
         <p className="text-[10px] text-center text-zinc-500">
-          Secure private accounts • Free cloud memory vault • Instant room code sharing
+          Secure private accounts • Isolated personal memory vault • Instant room access
         </p>
       </div>
     </Modal>

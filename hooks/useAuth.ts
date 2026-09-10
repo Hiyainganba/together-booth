@@ -16,6 +16,29 @@ export function useAuth() {
     return () => unsub();
   }, [setUser]);
 
+  const registerWithEmailAndPhone = async (
+    email: string,
+    phoneNumber: string,
+    pass: string,
+    displayName: string,
+    photoURL?: string,
+    bio?: string,
+    verificationCode?: string
+  ) => {
+    const u = await authService.registerWithEmailAndPhone(
+      email,
+      phoneNumber,
+      pass,
+      displayName,
+      photoURL,
+      bio,
+      verificationCode
+    );
+    setUser(u);
+    closeAuthModal();
+    return u;
+  };
+
   const registerWithEmail = async (
     email: string,
     pass: string,
@@ -100,6 +123,7 @@ export function useAuth() {
     isAuthModalOpen,
     openAuthModal,
     closeAuthModal,
+    registerWithEmailAndPhone,
     registerWithEmail,
     signInWithEmail,
     sendPasswordReset,
