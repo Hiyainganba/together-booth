@@ -77,33 +77,25 @@ export function usePhotobooth() {
     (shotIndex: number): CapturedShot => {
       const frames: CapturedParticipantFrame[] = [];
 
-      const hostEl = document.querySelector<HTMLVideoElement | HTMLCanvasElement>("[data-video-user='host']");
-      const guestEl = document.querySelector<HTMLVideoElement | HTMLCanvasElement>("[data-video-user='guest']");
-
-      let elements: (HTMLVideoElement | HTMLCanvasElement)[] = [];
-      if (hostEl && guestEl) {
-        elements = [hostEl, guestEl];
-      } else {
-        const markedElements = document.querySelectorAll<HTMLVideoElement | HTMLCanvasElement>(
-          "[data-video-source='true']"
-        );
-        elements =
-          markedElements.length > 0
-            ? Array.from(markedElements)
-            : Array.from(document.querySelectorAll<HTMLVideoElement>("video"));
-      }
+      const markedElements = document.querySelectorAll<HTMLVideoElement | HTMLCanvasElement>(
+        "[data-video-source='true']"
+      );
+      const elements: (HTMLVideoElement | HTMLCanvasElement)[] =
+        markedElements.length > 0
+          ? Array.from(markedElements)
+          : Array.from(document.querySelectorAll<HTMLVideoElement>("video"));
 
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
 
       const getWidth = (el: HTMLVideoElement | HTMLCanvasElement) =>
-        el instanceof HTMLVideoElement ? el.videoWidth || 800 : el.width || 800;
+        el instanceof HTMLVideoElement ? el.videoWidth || 1280 : el.width || 1280;
       const getHeight = (el: HTMLVideoElement | HTMLCanvasElement) =>
-        el instanceof HTMLVideoElement ? el.videoHeight || 600 : el.height || 600;
+        el instanceof HTMLVideoElement ? el.videoHeight || 720 : el.height || 720;
 
       if (elements.length === 0 || !ctx) {
-        canvas.width = 800;
-        canvas.height = 600;
+        canvas.width = 1200;
+        canvas.height = 900;
         if (ctx) {
           ctx.fillStyle = "#18181b";
           ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -111,188 +103,54 @@ export function usePhotobooth() {
         return {
           shotIndex,
           timestamp: Date.now(),
-          compositeDataUrl: canvas.toDataURL("image/jpeg", 0.92),
+          compositeDataUrl: canvas.toDataURL("image/jpeg", 0.95),
           individualFrames: [],
         };
       }
 
-      const totalElements = elements.length;
-
-      if (totalElements === 1) {
-        const el = elements[0];
-        canvas.width = 1280;
-        canvas.height = 720;
-
-        const srcW = getWidth(el);
-        const srcH = getHeight(el);
-        const targetRatio = canvas.width / canvas.height;
-        const srcRatio = srcW / srcH;
-
-        let sw = srcW;
-        let sh = srcH;
-        let sx = 0;
-        let sy = 0;
-
-        if (srcRatio > targetRatio) {
-          sw = srcH * targetRatio;
-          sx = (srcW - sw) / 2;
-        } else {
-          sh = srcW / targetRatio;
-          sy = (srcH - sh) / 2;
-        }
-
-        if (isMirrored && el instanceof HTMLVideoElement) {
-          ctx.save();
-          ctx.translate(canvas.width, 0);
-          ctx.scale(-1, 1);
-          ctx.drawImage(el, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-          ctx.restore();
-        } else {
-          ctx.drawImage(el, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-        }
-
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-        frames.push({
-          peerId: "local",
-          displayName: "Me",
-          dataUrl,
-        });
-
-        return {
-          shotIndex,
-          timestamp: Date.now(),
-          compositeDataUrl: dataUrl,
-          individualFrames: frames,
-        };
-      }
-
-      if (totalElements === 2) {
-        canvas.width = 1280;
-        canvas.height = 720;
-        const halfWidth = canvas.width / 2;
-        const targetRatio = halfWidth / canvas.height;
-
-        elements.forEach((el, idx) => {
-          const srcW = getWidth(el);
-          const srcH = getHeight(el);
-          const srcRatio = srcW / srcH;
-
-          let sw = srcW;
-          let sh = srcH;
-          let sx = 0;
-          let sy = 0;
-
-          if (srcRatio > targetRatio) {
-            sw = srcH * targetRatio;
-            sx = (srcW - sw) / 2;
-          } else {
-            sh = srcW / targetRatio;
-            sy = (srcH - sh) / 2;
-          }
-
-          const isLocal = el.getAttribute("data-video-role") === "local";
-          const shouldMirror = isMirrored && isLocal && el instanceof HTMLVideoElement;
-
-          const singleCanvas = document.createElement("canvas");
-          singleCanvas.width = srcW;
-          singleCanvas.height = srcH;
-          const sCtx = singleCanvas.getContext("2d");
-          if (sCtx) {
-            if (shouldMirror) {
-              sCtx.save();
-              sCtx.translate(singleCanvas.width, 0);
-              sCtx.scale(-1, 1);
-              sCtx.drawImage(el, 0, 0, singleCanvas.width, singleCanvas.height);
-              sCtx.restore();
-            } else {
-              sCtx.drawImage(el, 0, 0, singleCanvas.width, singleCanvas.height);
-            }
-          }
-          const sDataUrl = singleCanvas.toDataURL("image/jpeg", 0.9);
-          frames.push({
-            peerId: idx === 0 ? "host" : "guest",
-            displayName: idx === 0 ? "Host" : "Partner",
-            dataUrl: sDataUrl,
-          });
-
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(idx * halfWidth, 0, halfWidth, canvas.height);
-          ctx.clip();
-
-          if (shouldMirror) {
-            ctx.translate(idx * halfWidth + halfWidth, 0);
-            ctx.scale(-1, 1);
-            ctx.drawImage(el, sx, sy, sw, sh, 0, 0, halfWidth, canvas.height);
-          } else {
-            ctx.drawImage(el, sx, sy, sw, sh, idx * halfWidth, 0, halfWidth, canvas.height);
-          }
-          ctx.restore();
-        });
-
-        return {
-          shotIndex,
-          timestamp: Date.now(),
-          compositeDataUrl: canvas.toDataURL("image/jpeg", 0.92),
-          individualFrames: frames,
-        };
-      }
-
+      const el = elements[0];
       canvas.width = 1200;
       canvas.height = 900;
-      const cols = totalElements <= 4 ? 2 : 3;
-      const rows = Math.ceil(totalElements / cols);
-      const cellWidth = canvas.width / cols;
-      const cellHeight = canvas.height / rows;
-      const cellRatio = cellWidth / cellHeight;
 
-      elements.forEach((el, idx) => {
-        const c = idx % cols;
-        const r = Math.floor(idx / cols);
+      const srcW = getWidth(el);
+      const srcH = getHeight(el);
+      const targetRatio = canvas.width / canvas.height;
+      const srcRatio = srcW / srcH;
 
-        const srcW = getWidth(el);
-        const srcH = getHeight(el);
-        const srcRatio = srcW / srcH;
+      let sw = srcW;
+      let sh = srcH;
+      let sx = 0;
+      let sy = 0;
 
-        let sw = srcW;
-        let sh = srcH;
-        let sx = 0;
-        let sy = 0;
+      if (srcRatio > targetRatio) {
+        sw = srcH * targetRatio;
+        sx = (srcW - sw) / 2;
+      } else {
+        sh = srcW / targetRatio;
+        sy = (srcH - sh) / 2;
+      }
 
-        if (srcRatio > cellRatio) {
-          sw = srcH * cellRatio;
-          sx = (srcW - sw) / 2;
-        } else {
-          sh = srcW / cellRatio;
-          sy = (srcH - sh) / 2;
-        }
-
-        const singleCanvas = document.createElement("canvas");
-        singleCanvas.width = srcW;
-        singleCanvas.height = srcH;
-        const sCtx = singleCanvas.getContext("2d");
-        if (sCtx) {
-          sCtx.drawImage(el, 0, 0, singleCanvas.width, singleCanvas.height);
-        }
-        const sDataUrl = singleCanvas.toDataURL("image/jpeg", 0.9);
-        frames.push({
-          peerId: idx === 0 ? "local" : `peer_${idx}`,
-          displayName: idx === 0 ? "You" : `Friend ${idx}`,
-          dataUrl: sDataUrl,
-        });
-
+      if (isMirrored && el instanceof HTMLVideoElement) {
         ctx.save();
-        ctx.beginPath();
-        ctx.rect(c * cellWidth, r * cellHeight, cellWidth, cellHeight);
-        ctx.clip();
-        ctx.drawImage(el, sx, sy, sw, sh, c * cellWidth, r * cellHeight, cellWidth, cellHeight);
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(el, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
         ctx.restore();
+      } else {
+        ctx.drawImage(el, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      }
+
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+      frames.push({
+        peerId: "local",
+        displayName: "You",
+        dataUrl,
       });
 
       return {
         shotIndex,
         timestamp: Date.now(),
-        compositeDataUrl: canvas.toDataURL("image/jpeg", 0.92),
+        compositeDataUrl: dataUrl,
         individualFrames: frames,
       };
     },

@@ -2,17 +2,11 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { Camera, Sparkles, Images, PlusCircle, LogIn, LogOut, Heart, Ticket, User } from "lucide-react";
-import { Button } from "@/ui/Button";
+import { Camera, Sparkles, Images, LogIn, LogOut, User } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { UserAvatar } from "@/components/auth/UserAvatar";
 
-interface NavbarProps {
-  onCreateRoomClick?: () => void;
-  onJoinRoomClick?: () => void;
-}
-
-export function Navbar({ onCreateRoomClick, onJoinRoomClick }: NavbarProps) {
+export function Navbar() {
   const { user, isAuthenticated, openAuthModal, signOut } = useAuth();
   const [showDropdown, setShowDropdown] = useState(false);
 
@@ -28,7 +22,7 @@ export function Navbar({ onCreateRoomClick, onJoinRoomClick }: NavbarProps) {
               Together<span className="text-[#FF7E67] font-serif italic">Booth</span>
             </span>
             <span className="text-[10px] font-hand text-amber-200/80 -mt-1 block tracking-wider">
-              ✦ virtual photobooth for two & more ✦
+              ✦ your personal studio photobooth ✦
             </span>
           </div>
         </Link>
@@ -39,7 +33,7 @@ export function Navbar({ onCreateRoomClick, onJoinRoomClick }: NavbarProps) {
             className="flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-semibold text-zinc-300 hover:text-white hover:bg-white/5 transition-all"
           >
             <Images className="w-4 h-4 text-[#FF7E67]" />
-            <span>Community Wall</span>
+            <span>My Memories</span>
           </Link>
 
           {isAuthenticated && (
@@ -48,29 +42,17 @@ export function Navbar({ onCreateRoomClick, onJoinRoomClick }: NavbarProps) {
               className="flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-semibold text-zinc-300 hover:text-white hover:bg-white/5 transition-all"
             >
               <User className="w-4 h-4 text-amber-300" />
-              <span>My Profile & Vault</span>
+              <span>Profile & Vault</span>
             </Link>
           )}
 
-          {onJoinRoomClick && (
-            <button
-              onClick={onJoinRoomClick}
-              className="flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-semibold text-zinc-300 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
-            >
-              <Ticket className="w-4 h-4 text-amber-300" />
-              <span>Enter Room Code</span>
-            </button>
-          )}
-
-          {onCreateRoomClick && (
-            <button
-              onClick={onCreateRoomClick}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-bold bg-gradient-to-r from-[#FF6F61] to-[#E9A842] text-white shadow-lg shadow-[#FF6F61]/25 hover:shadow-xl hover:scale-102 active:scale-98 transition-all cursor-pointer"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Step Inside Booth</span>
-            </button>
-          )}
+          <Link
+            href="/booth"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-bold bg-gradient-to-r from-[#FF6F61] via-[#F0718F] to-[#E9A842] text-white shadow-lg shadow-[#FF6F61]/25 hover:shadow-xl hover:scale-102 active:scale-98 transition-all"
+          >
+            <Camera className="w-4 h-4" />
+            <span>Enter Photobooth 📸</span>
+          </Link>
         </nav>
 
         <div className="flex items-center gap-3">
@@ -99,43 +81,49 @@ export function Navbar({ onCreateRoomClick, onJoinRoomClick }: NavbarProps) {
                   <Link
                     href="/profile"
                     onClick={() => setShowDropdown(false)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/10 transition-colors"
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-zinc-300 hover:text-white hover:bg-white/5 transition-all"
                   >
-                    <User className="w-4 h-4 text-amber-300" />
-                    <span>My Profile & Vault</span>
+                    <User className="w-3.5 h-3.5" />
+                    <span>My Profile & Photos</span>
                   </Link>
                   <Link
                     href="/memories"
                     onClick={() => setShowDropdown(false)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/10 transition-colors"
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-zinc-300 hover:text-white hover:bg-white/5 transition-all"
                   >
-                    <Images className="w-4 h-4 text-[#FF7E67]" />
-                    <span>Community Wall</span>
+                    <Images className="w-3.5 h-3.5" />
+                    <span>Saved Photo Strips</span>
                   </Link>
                   <button
                     onClick={() => {
-                      signOut();
                       setShowDropdown(false);
+                      signOut();
                     }}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-red-400 hover:bg-red-500/10 transition-all cursor-pointer"
                   >
-                    <LogOut className="w-4 h-4" />
+                    <LogOut className="w-3.5 h-3.5" />
                     <span>Sign Out</span>
                   </button>
                 </div>
               )}
             </div>
           ) : (
-            <Button
-              variant="glass"
-              size="sm"
+            <button
               onClick={openAuthModal}
-              className="rounded-full border-white/15 text-xs font-semibold"
+              className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-zinc-200 hover:text-white transition-all cursor-pointer"
             >
-              <LogIn className="w-4 h-4" />
-              <span>Sign In / Register</span>
-            </Button>
+              <LogIn className="w-3.5 h-3.5 text-[#FF7E67]" />
+              <span>Sign In / Join</span>
+            </button>
           )}
+
+          <Link
+            href="/booth"
+            className="md:hidden flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-[#FF6F61] to-[#E9A842] text-white shadow-md"
+          >
+            <Camera className="w-3.5 h-3.5" />
+            <span>Booth</span>
+          </Link>
         </div>
       </div>
     </header>

@@ -4,8 +4,6 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/home/Navbar";
 import { Footer } from "@/components/home/Footer";
-import { CreateRoomModal } from "@/components/home/CreateRoomModal";
-import { JoinRoomModal } from "@/components/home/JoinRoomModal";
 import { useAuth } from "@/hooks/useAuth";
 import { useMemories } from "@/hooks/useMemories";
 import { MemoryItem } from "@/types/memory";
@@ -45,8 +43,6 @@ export default function ProfilePage() {
   const { user, isAuthenticated, loading: authLoading, updateProfile, signOut, openAuthModal } = useAuth();
   const { memories, loading: memoriesLoading, deleteMemory } = useMemories();
 
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [isJoinOpen, setIsJoinOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"vault" | "settings">("vault");
 
   const [editName, setEditName] = useState("");
@@ -102,10 +98,7 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#11100F] text-[#FAF6F0] selection:bg-[#FF6F61] selection:text-white">
-      <Navbar
-        onCreateRoomClick={() => setIsCreateOpen(true)}
-        onJoinRoomClick={() => setIsJoinOpen(true)}
-      />
+      <Navbar />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {!isAuthenticated && !authLoading ? (
@@ -186,7 +179,7 @@ export default function ProfilePage() {
                   <Button
                     variant="primary"
                     size="md"
-                    onClick={() => setIsCreateOpen(true)}
+                    onClick={() => router.push("/booth")}
                     className="flex items-center gap-2 shadow-lg"
                   >
                     <PlusCircle className="w-4 h-4" />
@@ -260,9 +253,9 @@ export default function ProfilePage() {
                         Start a photobooth session, invite a friend or your partner, customize your strip, and save it to your online vault!
                       </p>
                     </div>
-                    <Button variant="primary" size="md" onClick={() => setIsCreateOpen(true)}>
+                    <Button variant="primary" size="md" onClick={() => router.push("/booth")}>
                       <PlusCircle className="w-4 h-4 mr-1.5" />
-                      <span>Launch Your First Photobooth</span>
+                      <span>Launch Your Photobooth</span>
                     </Button>
                   </div>
                 ) : (
@@ -451,16 +444,6 @@ export default function ProfilePage() {
       </main>
 
       <Footer />
-
-      <CreateRoomModal
-        isOpen={isCreateOpen}
-        onClose={() => setIsCreateOpen(false)}
-      />
-
-      <JoinRoomModal
-        isOpen={isJoinOpen}
-        onClose={() => setIsJoinOpen(false)}
-      />
 
       <Modal
         isOpen={Boolean(selectedMemory)}

@@ -1,27 +1,22 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
+import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/home/Navbar";
 import { Footer } from "@/components/home/Footer";
 import { MemoriesGallery } from "@/components/memories/MemoriesGallery";
-import { CreateRoomModal } from "@/components/home/CreateRoomModal";
-import { JoinRoomModal } from "@/components/home/JoinRoomModal";
 import { useMemories } from "@/hooks/useMemories";
 import { Badge } from "@/ui/Badge";
-import { Sparkles, Images, PlusCircle } from "lucide-react";
+import { Sparkles, Camera } from "lucide-react";
 import { Button } from "@/ui/Button";
 
 export default function MemoriesPage() {
+  const router = useRouter();
   const { memories, loading, likeMemory, deleteMemory } = useMemories();
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [isJoinOpen, setIsJoinOpen] = useState(false);
 
   return (
     <div className="min-h-screen flex flex-col bg-zinc-950 text-white selection:bg-pink-500 selection:text-white">
-      <Navbar
-        onCreateRoomClick={() => setIsCreateOpen(true)}
-        onJoinRoomClick={() => setIsJoinOpen(true)}
-      />
+      <Navbar />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-10 gap-4">
@@ -33,21 +28,21 @@ export default function MemoriesPage() {
               </Badge>
             </div>
             <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
-              Shared & Private Albums
+              Personal Photo Vault
             </h1>
             <p className="text-sm sm:text-base text-zinc-400 mt-2 max-w-xl">
-              All your virtual photobooth strips, high-res captures, and customized memories in one place.
+              All your studio photobooth strips, high-res captures, and customized memories in one place.
             </p>
           </div>
 
           <Button
             variant="primary"
             size="md"
-            onClick={() => setIsCreateOpen(true)}
+            onClick={() => router.push("/booth")}
             className="self-start sm:self-auto shadow-xl shadow-pink-500/25"
           >
-            <PlusCircle className="w-4 h-4 mr-2" />
-            <span>New Photobooth</span>
+            <Camera className="w-4 h-4 mr-2" />
+            <span>Enter Photobooth</span>
           </Button>
         </div>
 
@@ -56,21 +51,11 @@ export default function MemoriesPage() {
           loading={loading}
           onLike={likeMemory}
           onDelete={deleteMemory}
-          onCreateClick={() => setIsCreateOpen(true)}
+          onCreateClick={() => router.push("/booth")}
         />
       </main>
 
       <Footer />
-
-      <CreateRoomModal
-        isOpen={isCreateOpen}
-        onClose={() => setIsCreateOpen(false)}
-      />
-
-      <JoinRoomModal
-        isOpen={isJoinOpen}
-        onClose={() => setIsJoinOpen(false)}
-      />
     </div>
   );
 }
