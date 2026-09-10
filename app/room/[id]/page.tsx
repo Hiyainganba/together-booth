@@ -271,6 +271,7 @@ export default function RoomPage() {
           isCameraActive={isCameraActive}
           isMirrored={isMirrored}
           filter={activeFilter}
+          onShareClick={() => setIsShareModalOpen(true)}
         />
       </main>
 

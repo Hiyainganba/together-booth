@@ -1,6 +1,6 @@
 import Peer, { MediaConnection, DataConnection } from "peerjs";
 import { RTC_CONFIG } from "./webrtc-mesh";
-import { Room, Participant, LayoutMode } from "@/types/room";
+import { Room, LayoutMode } from "@/types/room";
 import { FilterType } from "@/types/filter";
 
 export interface PeerMessagePayload {
@@ -24,6 +24,8 @@ export class PeerJSManager {
   private activeCalls: Map<string, MediaConnection> = new Map();
   private activeConnections: Map<string, DataConnection> = new Map();
   private peerIdToUid: Map<string, string> = new Map();
+  private uidToPeerId: Map<string, string> = new Map();
+  private peerIdToName: Map<string, string> = new Map();
   private localPeerId: string;
   private cleanRoomId: string;
   private localUid: string;
@@ -95,19 +97,25 @@ export class PeerJSManager {
 
         call.on("stream", (remoteStream) => {
           const mappedUid = this.peerIdToUid.get(callerPeerId) || callerPeerId;
-          this.onRemoteStream?.(mappedUid, remoteStream);
+          const mappedName = this.peerIdToName.get(callerPeerId);
+          this.onRemoteStream?.(mappedUid, remoteStream, mappedName);
+          if (mappedUid !== callerPeerId) {
+            this.onRemoteStream?.(callerPeerId, remoteStream, mappedName);
+          }
         });
 
         call.on("close", () => {
           const mappedUid = this.peerIdToUid.get(callerPeerId) || callerPeerId;
           this.activeCalls.delete(callerPeerId);
           this.onRemoteStreamRemoved?.(mappedUid);
+          this.onRemoteStreamRemoved?.(callerPeerId);
         });
 
         call.on("error", () => {
           const mappedUid = this.peerIdToUid.get(callerPeerId) || callerPeerId;
           this.activeCalls.delete(callerPeerId);
           this.onRemoteStreamRemoved?.(mappedUid);
+          this.onRemoteStreamRemoved?.(callerPeerId);
         });
       });
 
@@ -131,14 +139,14 @@ export class PeerJSManager {
     if (this.retryTimer) clearInterval(this.retryTimer);
     let attempts = 0;
     this.retryTimer = setInterval(() => {
-      if (this.isDestroyed || this.activeConnections.size > 0 || attempts > 15) {
+      if (this.isDestroyed || this.activeConnections.size > 0 || attempts > 20) {
         if (this.retryTimer) clearInterval(this.retryTimer);
         this.retryTimer = null;
         return;
       }
       attempts++;
       this.connectToHost();
-    }, 2500);
+    }, 2000);
   }
 
   private connectToHost() {
@@ -152,29 +160,40 @@ export class PeerJSManager {
       }
     }
 
-    if (this.localStream && !this.activeCalls.has(hostPeerId)) {
-      try {
-        const call = this.peer.call(hostPeerId, this.localStream);
-        if (call) {
-          this.activeCalls.set(hostPeerId, call);
-
-          call.on("stream", (remoteStream) => {
-            const mappedUid = this.peerIdToUid.get(hostPeerId) || hostPeerId;
-            this.onRemoteStream?.(mappedUid, remoteStream);
-          });
-
-          call.on("close", () => {
-            const mappedUid = this.peerIdToUid.get(hostPeerId) || hostPeerId;
-            this.activeCalls.delete(hostPeerId);
-            this.onRemoteStreamRemoved?.(mappedUid);
-          });
-
-          call.on("error", () => {
-            this.activeCalls.delete(hostPeerId);
-          });
-        }
-      } catch {}
+    if (this.localStream) {
+      this.callPeer(hostPeerId);
     }
+  }
+
+  callPeer(targetPeerId: string) {
+    if (!this.peer || this.peer.destroyed || !this.localStream || targetPeerId === this.localPeerId) return;
+
+    try {
+      const call = this.peer.call(targetPeerId, this.localStream);
+      if (call) {
+        this.activeCalls.set(targetPeerId, call);
+
+        call.on("stream", (remoteStream) => {
+          const mappedUid = this.peerIdToUid.get(targetPeerId) || targetPeerId;
+          const mappedName = this.peerIdToName.get(targetPeerId);
+          this.onRemoteStream?.(mappedUid, remoteStream, mappedName);
+          if (mappedUid !== targetPeerId) {
+            this.onRemoteStream?.(targetPeerId, remoteStream, mappedName);
+          }
+        });
+
+        call.on("close", () => {
+          const mappedUid = this.peerIdToUid.get(targetPeerId) || targetPeerId;
+          this.activeCalls.delete(targetPeerId);
+          this.onRemoteStreamRemoved?.(mappedUid);
+          this.onRemoteStreamRemoved?.(targetPeerId);
+        });
+
+        call.on("error", () => {
+          this.activeCalls.delete(targetPeerId);
+        });
+      }
+    } catch {}
   }
 
   private setupDataConnection(conn: DataConnection) {
@@ -189,22 +208,8 @@ export class PeerJSManager {
         peerId: this.localPeerId,
       });
 
-      if (this.localStream && !this.activeCalls.has(remoteId) && this.peer) {
-        try {
-          const call = this.peer.call(remoteId, this.localStream);
-          if (call) {
-            this.activeCalls.set(remoteId, call);
-            call.on("stream", (remoteStream) => {
-              const mappedUid = this.peerIdToUid.get(remoteId) || remoteId;
-              this.onRemoteStream?.(mappedUid, remoteStream);
-            });
-            call.on("close", () => {
-              const mappedUid = this.peerIdToUid.get(remoteId) || remoteId;
-              this.activeCalls.delete(remoteId);
-              this.onRemoteStreamRemoved?.(mappedUid);
-            });
-          }
-        } catch {}
+      if (this.localStream) {
+        this.callPeer(remoteId);
       }
     });
 
@@ -214,12 +219,25 @@ export class PeerJSManager {
 
         if (data.type === "join_handshake" && data.senderId) {
           this.peerIdToUid.set(remoteId, data.senderId);
+          this.uidToPeerId.set(data.senderId, remoteId);
+          if (data.displayName) {
+            this.peerIdToName.set(remoteId, data.displayName);
+          }
+
+          if (this.localStream) {
+            this.callPeer(remoteId);
+          }
+
           if (this.isHost) {
             const currentConnectedPeers = Array.from(this.activeConnections.keys());
             conn.send({
               type: "peer_list_sync",
               peers: currentConnectedPeers,
             });
+          }
+        } else if (data.type === "stream_ready" && data.peerId) {
+          if (this.localStream) {
+            this.callPeer(data.peerId);
           }
         } else if (data.type === "room_state_sync" && data.room) {
           this.onRoomSync?.(data.room);
@@ -241,6 +259,7 @@ export class PeerJSManager {
       this.activeConnections.delete(remoteId);
       this.peerIdToUid.delete(remoteId);
       this.onRemoteStreamRemoved?.(mappedUid);
+      this.onRemoteStreamRemoved?.(remoteId);
     });
 
     conn.on("error", () => {
@@ -248,6 +267,7 @@ export class PeerJSManager {
       this.activeConnections.delete(remoteId);
       this.peerIdToUid.delete(remoteId);
       this.onRemoteStreamRemoved?.(mappedUid);
+      this.onRemoteStreamRemoved?.(remoteId);
     });
   }
 
@@ -261,20 +281,8 @@ export class PeerJSManager {
         this.setupDataConnection(conn);
       }
 
-      if (this.localStream && !this.activeCalls.has(targetPeerId)) {
-        const call = this.peer.call(targetPeerId, this.localStream);
-        if (call) {
-          this.activeCalls.set(targetPeerId, call);
-          call.on("stream", (remoteStream) => {
-            const mappedUid = this.peerIdToUid.get(targetPeerId) || targetPeerId;
-            this.onRemoteStream?.(mappedUid, remoteStream);
-          });
-          call.on("close", () => {
-            const mappedUid = this.peerIdToUid.get(targetPeerId) || targetPeerId;
-            this.activeCalls.delete(targetPeerId);
-            this.onRemoteStreamRemoved?.(mappedUid);
-          });
-        }
+      if (this.localStream) {
+        this.callPeer(targetPeerId);
       }
     } catch {}
   }
@@ -298,26 +306,24 @@ export class PeerJSManager {
       } catch {}
     }
 
-    if (!this.isHost) {
-      const hostPeerId = `tb_${this.cleanRoomId}_host`;
-      if (!this.activeCalls.has(hostPeerId) && this.peer && !this.peer.destroyed) {
-        try {
-          const call = this.peer.call(hostPeerId, stream);
-          if (call) {
-            this.activeCalls.set(hostPeerId, call);
-            call.on("stream", (remoteStream) => {
-              const mappedUid = this.peerIdToUid.get(hostPeerId) || hostPeerId;
-              this.onRemoteStream?.(mappedUid, remoteStream);
-            });
-            call.on("close", () => {
-              const mappedUid = this.peerIdToUid.get(hostPeerId) || hostPeerId;
-              this.activeCalls.delete(hostPeerId);
-              this.onRemoteStreamRemoved?.(mappedUid);
-            });
-          }
-        } catch {}
+    for (const remotePeerId of this.activeConnections.keys()) {
+      if (!this.activeCalls.has(remotePeerId)) {
+        this.callPeer(remotePeerId);
       }
     }
+
+    if (!this.isHost) {
+      const hostPeerId = `tb_${this.cleanRoomId}_host`;
+      if (!this.activeCalls.has(hostPeerId)) {
+        this.callPeer(hostPeerId);
+      }
+    }
+
+    this.broadcast({
+      type: "stream_ready",
+      senderId: this.localUid,
+      peerId: this.localPeerId,
+    });
   }
 
   broadcast(message: PeerMessagePayload): void {
@@ -355,6 +361,8 @@ export class PeerJSManager {
     this.activeCalls.clear();
     this.activeConnections.clear();
     this.peerIdToUid.clear();
+    this.uidToPeerId.clear();
+    this.peerIdToName.clear();
 
     if (this.peer) {
       try {
