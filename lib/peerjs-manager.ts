@@ -30,7 +30,7 @@ export class PeerJSManager {
   private displayName: string;
   private isDestroyed = false;
   private currentSlotIndex = 1;
-  private maxSlots = 6;
+  private maxSlots = 4;
   private heartbeatTimer: NodeJS.Timeout | null = null;
 
   private onRemoteStream?: (uid: string, stream: MediaStream, displayName?: string) => void;
@@ -91,20 +91,23 @@ export class PeerJSManager {
       if (this.peer) {
         try {
           this.peer.destroy();
-        } catch {}
+        } catch { }
         this.peer = null;
       }
 
-      this.peer = new Peer(slotId, {
+      const peerInstance = new Peer(slotId, {
         config: RTC_CONFIG,
         debug: 1,
       });
 
-      this.peer.on("open", () => {
+      this.peer = peerInstance;
+
+      peerInstance.on("open", () => {
+        if (this.isDestroyed || this.peer !== peerInstance) return;
         this.startMeshHeartbeat();
       });
 
-      this.peer.on("call", (call) => {
+      peerInstance.on("call", (call) => {
         const callerPeerId = call.peer;
         this.activeCalls.set(callerPeerId, call);
 
@@ -138,59 +141,69 @@ export class PeerJSManager {
         });
       });
 
-      this.peer.on("connection", (conn) => {
+      peerInstance.on("connection", (conn) => {
         this.setupDataConnection(conn);
       });
 
-      this.peer.on("error", (err: unknown) => {
+      peerInstance.on("error", (err: unknown) => {
         const errType = (err as { type?: string })?.type;
         if (errType === "unavailable-id") {
           if (slot < this.maxSlots) {
-            this.initSlot(slot + 1);
+            setTimeout(() => {
+              if (!this.isDestroyed) {
+                this.initSlot(slot + 1);
+              }
+            }, 300);
           } else {
             const randSuffix = Math.floor(1000 + Math.random() * 9000);
             this.currentSlotIndex = 99;
             const fallbackId = `tb_${this.cleanRoomId}_alt_${randSuffix}`;
-            this.peer = new Peer(fallbackId, { config: RTC_CONFIG, debug: 1 });
-            this.peer.on("open", () => this.startMeshHeartbeat());
-            this.peer.on("call", (call) => {
-              this.activeCalls.set(call.peer, call);
-              if (this.localStream) call.answer(this.localStream);
-              else call.answer();
-              call.on("stream", (stream) => {
-                this.onRemoteStream?.(call.peer, stream, this.peerIdToName.get(call.peer) || "Partner 🧸");
-              });
-            });
-            this.peer.on("connection", (conn) => this.setupDataConnection(conn));
+            setTimeout(() => {
+              if (this.isDestroyed) return;
+              try {
+                this.peer = new Peer(fallbackId, { config: RTC_CONFIG, debug: 1 });
+                this.peer.on("open", () => this.startMeshHeartbeat());
+                this.peer.on("call", (call) => {
+                  this.activeCalls.set(call.peer, call);
+                  if (this.localStream) call.answer(this.localStream);
+                  else call.answer();
+                  call.on("stream", (stream) => {
+                    this.onRemoteStream?.(call.peer, stream, this.peerIdToName.get(call.peer) || "Partner 🧸");
+                  });
+                });
+                this.peer.on("connection", (c) => this.setupDataConnection(c));
+              } catch { }
+            }, 300);
           }
         }
       });
-    } catch {}
+    } catch { }
   }
 
   private startMeshHeartbeat() {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
 
-    const tryConnectAll = () => {
+    const tryConnect = () => {
       if (this.isDestroyed || !this.peer || this.peer.destroyed) return;
 
-      const targets = this.targetSlotIds;
-      targets.forEach((targetId) => {
-        if (!this.activeConnections.has(targetId)) {
-          const conn = this.peer!.connect(targetId, { reliable: true });
+      const targetId = this.currentSlotIndex === 1 ? this.getSlotId(2) : this.getSlotId(1);
+
+      if (!this.activeConnections.has(targetId)) {
+        try {
+          const conn = this.peer.connect(targetId, { reliable: true });
           if (conn) {
             this.setupDataConnection(conn);
           }
-        }
+        } catch { }
+      }
 
-        if (this.localStream && !this.activeCalls.has(targetId)) {
-          this.callPeer(targetId);
-        }
-      });
+      if (this.localStream && !this.activeCalls.has(targetId)) {
+        this.callPeer(targetId);
+      }
     };
 
-    tryConnectAll();
-    this.heartbeatTimer = setInterval(tryConnectAll, 2000);
+    tryConnect();
+    this.heartbeatTimer = setInterval(tryConnect, 2000);
   }
 
   callPeer(targetPeerId: string) {
@@ -218,10 +231,11 @@ export class PeerJSManager {
         });
 
         call.on("error", () => {
+          const mappedUid = this.peerIdToUid.get(targetPeerId) || targetPeerId;
           this.activeCalls.delete(targetPeerId);
         });
       }
-    } catch {}
+    } catch { }
   }
 
   private setupDataConnection(conn: DataConnection) {
@@ -316,18 +330,15 @@ export class PeerJSManager {
             }
           });
         }
-      } catch {}
+      } catch { }
     }
 
     for (const remotePeerId of this.activeConnections.keys()) {
       this.callPeer(remotePeerId);
     }
 
-    for (const targetId of this.targetSlotIds) {
-      if (!this.activeCalls.has(targetId)) {
-        this.callPeer(targetId);
-      }
-    }
+    const primaryTargetId = this.currentSlotIndex === 1 ? this.getSlotId(2) : this.getSlotId(1);
+    this.callPeer(primaryTargetId);
 
     this.broadcast({
       type: "stream_ready",
@@ -347,7 +358,7 @@ export class PeerJSManager {
         if (conn.open) {
           conn.send(enrichedMessage);
         }
-      } catch {}
+      } catch { }
     }
   }
 
@@ -361,12 +372,12 @@ export class PeerJSManager {
     for (const call of this.activeCalls.values()) {
       try {
         call.close();
-      } catch {}
+      } catch { }
     }
     for (const conn of this.activeConnections.values()) {
       try {
         conn.close();
-      } catch {}
+      } catch { }
     }
     this.activeCalls.clear();
     this.activeConnections.clear();
@@ -376,7 +387,7 @@ export class PeerJSManager {
     if (this.peer) {
       try {
         this.peer.destroy();
-      } catch {}
+      } catch { }
       this.peer = null;
     }
   }
